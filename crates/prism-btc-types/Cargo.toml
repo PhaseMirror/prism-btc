@@ -1,0 +1,16 @@
+[package]
+name        = "prism-btc-types"
+version     = "0.1.0"
+edition     = "2021"
+description = "Bitcoin domain types as UOR-constrained ring elements"
+license     = "Apache-2.0"
+repository  = "https://github.com/UOR-Foundation/prism-btc"
+
+[dependencies]
+uor-foundation        = { workspace = true }
+uor-foundation-macros = { workspace = true }
+prism-btc-primitives  = { path = "../prism-btc-primitives" }
+
+[features]
+default = ["std"]
+std     = ["prism-btc-primitives/std"]

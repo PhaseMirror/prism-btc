@@ -1,0 +1,14 @@
+[package]
+name        = "prism-btc-primitives"
+version     = "0.1.0"
+edition     = "2021"
+description = "Bitcoin scalar primitives bound to the UOR ring vocabulary"
+license     = "Apache-2.0"
+repository  = "https://github.com/UOR-Foundation/prism-btc"
+
+[dependencies]
+uor-foundation = { workspace = true }
+
+[features]
+default = ["std"]
+std     = []

@@ -1,0 +1,17 @@
+[package]
+name        = "prism-btc-reduction"
+version     = "0.1.0"
+edition     = "2021"
+description = "Nonce iteration and mining certificate for prism-btc"
+license     = "Apache-2.0"
+repository  = "https://github.com/UOR-Foundation/prism-btc"
+
+[dependencies]
+uor-foundation        = { workspace = true }
+uor-foundation-macros = { workspace = true }
+prism-btc-primitives  = { path = "../prism-btc-primitives" }
+prism-btc-types       = { path = "../prism-btc-types" }
+
+[features]
+default = ["std"]
+std     = ["prism-btc-primitives/std", "prism-btc-types/std"]

@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --exclude prism-btc-wasm -- -D warnings
+
+      - name: Test (fast — mining tests excluded)
+        run: >
+          cargo test --workspace --exclude prism-btc-wasm
+          -- --skip mine_genesis_block_integration --skip mine_genesis_regression
+
+      - name: Genesis compile-time vector check
+        run: cargo check -p prism-btc-reduction
+
+      - name: WASM compilation check
+        run: cargo check --target wasm32-unknown-unknown -p prism-btc-wasm
+
+  lean:
+    name: Lean 4 proofs
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- --default-toolchain none -y
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Lake packages
+        uses: actions/cache@v4
+        with:
+          path: prism-btc-lean/.lake
+          key: lean-${{ hashFiles('prism-btc-lean/lean-toolchain', 'prism-btc-lean/lakefile.lean') }}
+          restore-keys: lean-
+
+      - name: Build Lean proofs
+        working-directory: prism-btc-lean
+        run: lake update && lake build

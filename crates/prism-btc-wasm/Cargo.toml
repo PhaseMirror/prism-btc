@@ -1,0 +1,24 @@
+[package]
+name        = "prism-btc-wasm"
+version     = "0.1.0"
+edition     = "2021"
+description = "WebAssembly bindings for the prism-btc mining library"
+license     = "Apache-2.0"
+repository  = "https://github.com/UOR-Foundation/prism-btc"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen         = { workspace = true }
+js-sys               = { workspace = true }
+prism-btc            = { path = "../prism-btc" }
+prism-btc-primitives = { path = "../prism-btc-primitives" }
+prism-btc-types      = { path = "../prism-btc-types" }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = ["std"]
+std     = ["prism-btc/std"]
