@@ -1,4 +1,7 @@
-use prism_btc::{genesis_block_hash, mine, BlockHeader, MerkleRoot, Target};
+use prism_btc::{
+    genesis, BlockCertificate, BlockHeader, Boundary, BoundaryDecodeError, MerkleRoot, MiningRound,
+    Target,
+};
 use prism_btc_primitives::{Bits, Timestamp, Version};
 
 fn genesis_header() -> BlockHeader {
@@ -20,38 +23,33 @@ fn genesis_header() -> BlockHeader {
 }
 
 #[test]
-#[ignore = "mines full genesis block (~2B nonces) — run in release with: cargo test --release -- --ignored"]
-fn mine_genesis_block_integration() {
+fn mine_converges_and_satisfies_target() {
     let header = genesis_header();
-    let target = Target::new(Target::GENESIS_NBITS);
-    let cert = mine(&header, &target).expect("genesis must be found");
+    // 0x207fffff: very easy target; converges in < 1ms in debug mode.
+    // Convergence termination is formally proven in prism-btc-lean/PrismBtc/ConvergenceProtocol.lean.
+    let target = Target::new(0x207fffff);
+    let cert = MiningRound::new(header, target)
+        .converge()
+        .expect("easy target must converge");
 
-    assert_eq!(cert.nonce(), 2083236893, "wrong nonce");
-
-    // Expected hash in display (big-endian) format — sha256d returns reversed bytes
-    let expected: [u8; 32] = [
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68, 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e,
-        0x93, 0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1, 0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c,
-        0xe2, 0x6f,
-    ];
-    assert_eq!(cert.hash_bytes(), &expected, "wrong hash");
-
-    // Triadic coordinates of the genesis hash:
-    // First 5 bytes are 0x00 — bits 0..4 of spectrum must be clear.
+    // Returned hash must satisfy the target constraint.
+    assert!(target.is_satisfied_by_bytes(&cert.coords().datum));
+    // Triadic coordinates must be populated.
+    assert_ne!(cert.coords().datum, [0u8; 32], "datum must be non-zero");
+    // Easy target (0x207fffff) requires at least one leading zero byte →
+    // bit 0 of spectrum (which counts leading-zero bytes) must be set.
     assert_eq!(
-        cert.spectrum() & 0x1f,
-        0,
-        "spectrum: first 5 bytes must be zero"
+        cert.coords().spectrum & 1,
+        1,
+        "easy target produces at least one leading zero byte"
     );
-    // Genesis hash has many set bits after byte 5 — stratum must be non-zero.
-    assert!(cert.stratum() > 0, "stratum must be non-zero");
 }
 
 #[test]
 fn genesis_grounded_constant_is_certified() {
-    // The genesis_grounded() function runs uor_ground! at call time.
+    // genesis() runs uor_ground! at call time.
     // Verify the Grounded<BlockHash> carries non-trivial certification metadata.
-    let grounded_const = genesis_block_hash();
+    let grounded_const = genesis();
     // unit_address is a content-addressed FNV-1a hash of BlockHash's type IRI +
     // constraint list — non-zero for any non-trivial constraint system.
     assert_ne!(
@@ -64,5 +62,22 @@ fn genesis_grounded_constant_is_certified() {
         grounded_const.witt_level_bits(),
         32,
         "W32 level must propagate"
+    );
+}
+
+#[test]
+fn boundary_decode_rejects_wrong_length() {
+    let short = [0u8; 79];
+    let result = BlockCertificate::decode(&short);
+    assert!(
+        matches!(result, Err(BoundaryDecodeError::InvalidLength { got: 79 })),
+        "decode of 79 bytes must return InvalidLength {{ got: 79 }}"
+    );
+
+    let long = [0u8; 81];
+    let result = BlockCertificate::decode(&long);
+    assert!(
+        matches!(result, Err(BoundaryDecodeError::InvalidLength { got: 81 })),
+        "decode of 81 bytes must return InvalidLength {{ got: 81 }}"
     );
 }

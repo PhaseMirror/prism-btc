@@ -1,10 +1,12 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use prism_btc::{serialize_header, sha256d, BlockHeader, Target, TriadicCoords};
+use prism_btc::{BlockHeader, MiningRound, Target, TriadicCoords};
 use prism_btc_primitives::{Bits, Timestamp, Version};
 use prism_btc_types::MerkleRoot;
 
 fn genesis_header() -> BlockHeader {
-    // Merkle root in Bitcoin internal byte order.
+    // Merkle root in Bitcoin internal byte order (reversed from display).
+    // Display: 4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b
+    // Internal: 3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a
     let merkle_bytes: [u8; 32] = [
         0x3b, 0xa3, 0xed, 0xfd, 0x7a, 0x7b, 0x12, 0xb2, 0x7a, 0xc7, 0x2c, 0x3e, 0x67, 0x76, 0x8f,
         0x61, 0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32, 0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e,
@@ -19,22 +21,19 @@ fn genesis_header() -> BlockHeader {
     }
 }
 
-fn bench_serialize_header(c: &mut Criterion) {
-    let header = genesis_header();
+fn bench_convergence_easy(c: &mut Criterion) {
+    // Use a very easy target (0x207fffff) so the bench completes in microseconds.
+    // This benchmarks the observable public API — σ-convergence via MiningRound.
+    let easy_target = Target::new(0x207fffff);
     let mut g = c.benchmark_group("hot_path");
     g.throughput(Throughput::Elements(1));
-    g.bench_function("serialize_header", |b| {
-        b.iter(|| serialize_header(black_box(&header), black_box(0u32)))
+    g.bench_function("convergence_easy_target", |b| {
+        b.iter(|| {
+            MiningRound::new(black_box(genesis_header()), black_box(easy_target))
+                .converge()
+                .expect("easy target must converge")
+        })
     });
-    g.finish();
-}
-
-fn bench_sha256d(c: &mut Criterion) {
-    let header = genesis_header();
-    let buf = serialize_header(&header, 2083236893);
-    let mut g = c.benchmark_group("hot_path");
-    g.throughput(Throughput::Bytes(80));
-    g.bench_function("sha256d_80_bytes", |b| b.iter(|| sha256d(black_box(&buf))));
     g.finish();
 }
 
@@ -71,8 +70,7 @@ fn bench_triadic_coords(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_serialize_header,
-    bench_sha256d,
+    bench_convergence_easy,
     bench_target_check,
     bench_triadic_coords
 );

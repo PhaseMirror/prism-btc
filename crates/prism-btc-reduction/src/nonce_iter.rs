@@ -4,13 +4,13 @@
 /// Rust, external to the UOR pipeline. The structural enforcement of `freeRank = 0`
 /// is that `Grounded<BlockHash>` can only be produced by `uor_foundation::pipeline::run_pipeline`
 /// or `uor_ground!`. User code cannot fabricate a `Grounded<T>`.
-pub struct NonceIter {
+pub(crate) struct NonceIter {
     current: u32,
     exhausted: bool,
 }
 
 impl NonceIter {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             current: 0,
             exhausted: false,
@@ -18,7 +18,7 @@ impl NonceIter {
     }
 
     /// Returns `Some(nonce)` and advances the cursor; returns `None` after `u32::MAX`.
-    pub fn next_nonce(&mut self) -> Option<u32> {
+    pub(crate) fn next_nonce(&mut self) -> Option<u32> {
         if self.exhausted {
             return None;
         }
@@ -52,10 +52,9 @@ mod tests {
 
     #[test]
     fn nonce_iter_exhaustion() {
-        let mut iter = NonceIter {
-            current: u32::MAX - 1,
-            exhausted: false,
-        };
+        let mut iter = NonceIter::new();
+        // advance to u32::MAX - 1
+        iter.current = u32::MAX - 1;
         assert_eq!(iter.next_nonce(), Some(u32::MAX - 1));
         assert_eq!(iter.next_nonce(), Some(u32::MAX));
         assert_eq!(iter.next_nonce(), None);

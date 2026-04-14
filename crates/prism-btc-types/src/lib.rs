@@ -29,8 +29,8 @@ pub mod merkle_root;
 pub mod target;
 pub mod triadic;
 
-pub use block_hash::BlockHash;
-pub use block_header::{BlockHeader, BlockHeaderUnit};
+pub use block_hash::{BlockHash, BLOCK_HASH_SITE_WITT_BITS};
+pub use block_header::BlockHeader;
 pub use merkle_root::MerkleRoot;
 pub use target::Target;
 pub use triadic::TriadicCoords;

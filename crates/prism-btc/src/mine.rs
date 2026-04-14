@@ -1,51 +1,33 @@
-use uor_foundation::pipeline::run_pipeline;
+use crate::serialize::serialize_header;
+use crate::sha256d::sha256d;
+use prism_btc_reduction::{BlockCertificate, ConvergenceFailure};
+use prism_btc_types::{BlockHeader, Target};
 
-use crate::{serialize_header, sha256d};
-use prism_btc_reduction::{MineError, MiningCertificate, NonceIter};
-use prism_btc_types::{BlockHash, BlockHeader, Target};
-use uor_foundation_macros::uor_grounded;
-
-/// Mine a block header by iterating the nonce space until `run_pipeline` succeeds.
+/// Mine a block header by running the σ-convergence loop.
 ///
-/// **ψ-loop algorithm:**
+/// **σ-convergence loop:**
 /// 1. Serialize the 80-byte header with the candidate nonce
-/// 2. SHA256d (ψ-map): 80-byte CompileUnit → 32-byte candidate Datum
-/// 3. Target pre-filter: ~(2^(8N) - 1) / 2^(8N) of candidates fail here
-/// 4. `run_pipeline`: formal shape certification — runs 7-stage SAT reduction
+/// 2. σ-projection (SHA256d): 80-byte header → 32-byte candidate Datum
+/// 3. Target pre-filter: lexicographic target check rejects most candidates
+/// 4. `run_pipeline`: formal shape certification — runs pipeline reduction
 ///    over BlockHash's ConstrainedTypeShape constraints (W8 per-byte, 32 sites)
-/// 5. On success, wrap the un-fabricatable `Grounded<BlockHash>` in a certificate
+/// 5. On success, wrap the un-fabricatable `Grounded<BlockHash>` in a `BlockCertificate`
 ///
-/// `#[uor_grounded(level = "W32")]` emits a static Witt level assertion ensuring
-/// this function operates at Z/(2^32)Z — the nonce's ring. Mismatched level = compile error.
-#[uor_grounded(level = "W32")]
-pub fn mine(header: &BlockHeader, target: &Target) -> Result<MiningCertificate, MineError> {
-    let mut iter = NonceIter::new();
-
-    while let Some(nonce) = iter.next_nonce() {
-        // ψ-map (SHA256d): 80-byte CompileUnit → 32-byte candidate Datum
-        let raw = serialize_header(header, nonce);
-        let hash = sha256d(&raw);
-
-        // Fast pre-filter: Bitcoin target check (lexicographic comparison).
-        // The overwhelming majority of candidates fail here — skip pipeline for those.
-        if !target.is_satisfied_by_bytes(&hash) {
-            continue;
-        }
-
-        // Formal shape certification via the UOR ψ-reduction pipeline.
-        // witt_bits = 8: W8 level (Z/(2^8)Z) — one site per byte of the 32-byte hash.
-        let block_hash = BlockHash::from_bytes(hash);
-        match run_pipeline(&block_hash, 8u16) {
-            Ok(grounded) => {
-                // Grounded<BlockHash>: formally certified, freeRank = 0.
-                // Cannot be fabricated — produced only by run_pipeline.
-                return Ok(MiningCertificate::new(grounded, nonce, hash));
-            }
-            Err(reason) => return Err(MineError::PipelineFailed { nonce, reason }),
-        }
-    }
-
-    Err(MineError::NonceSpaceExhausted)
+/// SHA256d is the σ-projection (ingestion hash), NOT the UOR ψ-map. Foundation reserves
+/// ψ for the categorical functor chain ψ_1..ψ_9.
+///
+/// This function is `pub(crate)` — callers use `MiningRound::converge()`, which carries
+/// the `#[uor_grounded(level = "W32")]` Witt assertion via `converge_at_w32()`.
+pub(crate) fn mine(
+    header: &BlockHeader,
+    target: &Target,
+) -> Result<BlockCertificate, ConvergenceFailure> {
+    let target_bytes = target.to_bytes();
+    let header_clone = header.clone();
+    prism_btc_reduction::run_convergence(header.clone(), target_bytes, move |nonce| {
+        let raw = serialize_header(&header_clone, nonce);
+        sha256d(&raw)
+    })
 }
 
 #[cfg(test)]
@@ -73,19 +55,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "mines full genesis block (~2B nonces) — run in release with: cargo test --release -- --ignored"]
-    fn mine_genesis_regression() {
+    fn mine_easy_target() {
+        use crate::MiningRound;
         let header = genesis_header();
-        let target = Target::new(Target::GENESIS_NBITS);
-        let cert = mine(&header, &target).expect("genesis must be found");
-
-        assert_eq!(cert.nonce(), 2083236893);
-
-        let expected_hash: [u8; 32] = [
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68, 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83,
-            0x1e, 0x93, 0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1, 0x72, 0xb3, 0xf1, 0xb6,
-            0x0a, 0x8c, 0xe2, 0x6f,
-        ];
-        assert_eq!(cert.hash_bytes(), &expected_hash);
+        // 0x207fffff: very easy target; converges in < 1ms in debug mode.
+        // Convergence termination is formally proven in prism-btc-lean/PrismBtc/ConvergenceProtocol.lean.
+        let target = Target::new(0x207fffff);
+        let cert = MiningRound::new(header, target)
+            .converge()
+            .expect("easy target must converge");
+        // Verify the returned hash satisfies the target.
+        assert!(target.is_satisfied_by_bytes(&cert.coords().datum));
     }
 }

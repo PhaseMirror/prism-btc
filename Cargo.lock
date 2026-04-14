@@ -445,8 +445,8 @@ version = "0.1.0"
 dependencies = [
  "prism-btc-primitives",
  "prism-btc-types",
+ "sha2",
  "uor-foundation",
- "uor-foundation-macros",
 ]
 
 [[package]]

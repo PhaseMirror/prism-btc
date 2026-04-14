@@ -65,9 +65,11 @@ impl JsBlockHeader {
 }
 
 /// JavaScript-visible mining result.
+///
+/// The nonce is not exposed — it is an internal wire-format detail.
+/// Callers receive the triadic coordinates (stratum, spectrum) and the hash bytes.
 #[wasm_bindgen]
 pub struct JsMiningResult {
-    pub nonce: u32,
     pub stratum: u32,
     pub spectrum: u32,
     hash: [u8; 32],
@@ -82,9 +84,8 @@ impl JsMiningResult {
 }
 
 impl JsMiningResult {
-    pub(crate) fn new(nonce: u32, hash: [u8; 32], stratum: u32, spectrum: u32) -> Self {
+    pub(crate) fn new(hash: [u8; 32], stratum: u32, spectrum: u32) -> Self {
         Self {
-            nonce,
             hash,
             stratum,
             spectrum,

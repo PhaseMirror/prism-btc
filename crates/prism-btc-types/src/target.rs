@@ -127,16 +127,10 @@ mod tests {
         // Hash equal to target must satisfy (≤)
         assert!(t.is_satisfied_by_bytes(&target_bytes));
 
-        // Hash one above target (increment last byte) must not satisfy
+        // Hash one above target must not satisfy.
+        // Increment byte 6 (which is 0x00 in genesis target → 0x01) to produce a
+        // strictly-greater hash without triggering byte-wrap carry propagation.
         let mut above = target_bytes;
-        above[31] = above[31].wrapping_add(1);
-        // If the last byte wrapped, carry propagates — but for the genesis target
-        // the last byte is 0xff, so wrapping would carry. Use a byte that won't wrap.
-        // Instead increment byte[4] (which is 0xff in genesis target) by finding the
-        // first byte we can safely increment beyond the mantissa region.
-        let mut above = target_bytes;
-        // Byte 5 is 0xff in genesis target — increment byte 6 which is 0x00 → 0x01:
-        // target[6] = 0x00, so above[6] = 0x01 makes the hash strictly greater.
         above[6] = 0x01;
         assert!(!t.is_satisfied_by_bytes(&above));
     }

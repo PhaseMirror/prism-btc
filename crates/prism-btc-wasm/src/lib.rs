@@ -12,7 +12,7 @@
 //!
 //! const header = new JsBlockHeader(1, prevHashBytes, merkleRootBytes, timestamp, bits);
 //! const result = mine_block(header, 0x1d00ffff);
-//! console.log(result.nonce, result.stratum, result.spectrum);
+//! console.log(result.stratum, result.spectrum, result.hash());
 //! ```
 //!
 //! Build with `wasm-pack build crates/prism-btc-wasm --target web`.

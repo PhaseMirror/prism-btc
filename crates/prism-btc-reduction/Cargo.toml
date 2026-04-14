@@ -1,16 +1,21 @@
 [package]
-name        = "prism-btc-reduction"
-version     = "0.1.0"
-edition     = "2021"
-description = "Nonce iteration and mining certificate for prism-btc"
-license     = "Apache-2.0"
-repository  = "https://github.com/UOR-Foundation/prism-btc"
+name          = "prism-btc-reduction"
+version       = "0.1.0"
+edition       = "2021"
+description   = "σ-convergence loop and block certification for prism-btc"
+license       = "Apache-2.0"
+repository    = "https://github.com/UOR-Foundation/prism-btc"
+homepage      = "https://github.com/UOR-Foundation/prism-btc"
+documentation = "https://docs.rs/prism-btc-reduction"
+readme        = "../../README.md"
+keywords      = ["bitcoin", "uor", "mining", "certificate", "no-std"]
+categories    = ["cryptography::cryptocurrencies", "mathematics", "no-std"]
 
 [dependencies]
-uor-foundation        = { workspace = true }
-uor-foundation-macros = { workspace = true }
-prism-btc-primitives  = { path = "../prism-btc-primitives" }
-prism-btc-types       = { path = "../prism-btc-types" }
+uor-foundation       = { workspace = true }
+prism-btc-primitives = { path = "../prism-btc-primitives", version = "0.1.0" }
+prism-btc-types      = { path = "../prism-btc-types", version = "0.1.0" }
+sha2                 = { workspace = true }
 
 [features]
 default = ["std"]

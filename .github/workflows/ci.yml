@@ -42,13 +42,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --exclude prism-btc-wasm -- -D warnings
 
-      - name: Test (fast — mining tests excluded)
-        run: >
-          cargo test --workspace --exclude prism-btc-wasm
-          -- --skip mine_genesis_block_integration --skip mine_genesis_regression
+      - name: Test
+        run: cargo test --workspace --exclude prism-btc-wasm
 
-      - name: Genesis compile-time vector check
-        run: cargo check -p prism-btc-reduction
+      - name: Genesis grounding compile-time check
+        run: cargo check -p prism-btc
 
       - name: WASM compilation check
         run: cargo check --target wasm32-unknown-unknown -p prism-btc-wasm

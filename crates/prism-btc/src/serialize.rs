@@ -11,7 +11,7 @@ use prism_btc_types::BlockHeader;
 /// [72..76] bits        (LE u32)
 /// [76..80] nonce       (LE u32)
 /// ```
-pub fn serialize_header(header: &BlockHeader, nonce: u32) -> [u8; 80] {
+pub(crate) fn serialize_header(header: &BlockHeader, nonce: u32) -> [u8; 80] {
     let mut buf = [0u8; 80];
 
     buf[0..4].copy_from_slice(&header.version.0.to_le_bytes());

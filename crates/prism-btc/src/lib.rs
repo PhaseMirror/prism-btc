@@ -1,46 +1,48 @@
-//! Bitcoin mining as UOR shape-preserving morphism search.
+//! Bitcoin mining as σ-convergence over the nonce fiber of the 32×W8 Datum space.
 //!
-//! `prism-btc` reframes Bitcoin proof-of-work as finding a shape-preserving
-//! morphism from a block header (with a free nonce dimension) to a 32-byte
-//! [`BlockHash`] whose triadic coordinates satisfy the target shape constraint.
-//!
-//! ## ψ-loop algorithm
-//!
-//! ```text
-//! for nonce in 0..=u32::MAX:
-//!     raw  = serialize_header(header, nonce)   // 80-byte CompileUnit
-//!     hash = sha256d(raw)                       // ψ-map: CompileUnit → Datum
-//!     if hash > target: continue                // fast pre-filter (~2^(8N) rejects)
-//!     grounded = run_pipeline(&BlockHash(hash)) // formal SAT certification
-//!     return MiningCertificate { grounded, nonce, coords }
-//! ```
-//!
-//! The `Grounded<BlockHash>` returned by `run_pipeline` is the un-fabricatable
-//! certificate: its sealed constructor is only reachable through the pipeline,
-//! structurally enforcing `freeRank = 0`.
+//! The block header (80 bytes) is the source space. The σ-projection (SHA256d)
+//! maps each (header, nonce) pair to a candidate 32-byte Datum. The target
+//! shape constraint (leading zero bytes) defines a sub-bundle of the Datum
+//! space. Mining is a search for a nonce whose image under σ lands in that
+//! sub-bundle and passes the UOR `run_pipeline` certification.
 //!
 //! ## Entry points
 //!
-//! - [`mine`] — run the ψ-loop; returns a [`MiningCertificate`] on success
-//! - [`genesis_block_hash`] — compile-time-verified genesis constant
-//! - [`serialize_header`] — 80-byte Bitcoin wire format serialization
-//! - [`sha256d`] — double-SHA256 (returns bytes in display/big-endian order)
+//! - [`MiningRound`] — σ-convergence context; call `.converge()` to mine
+//! - [`genesis`] — compile-time-certified genesis block hash constant
+//! - [`Boundary`] — trait for crossing the raw-bytes / certified-types boundary
+//! - [`prelude`] — re-exports all client-facing types
+//!
+//! Import `prism_btc::prelude::*` for all client-facing types.
+//! No raw byte functions, no nonce values, and no convergence mechanics
+//! appear in the public surface.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-pub mod genesis;
-pub mod mine;
-pub mod serialize;
-pub mod sha256d;
+// Internal implementation modules — not part of the public surface
+mod genesis;
+mod mine;
+mod serialize;
+mod sha256d;
 
-pub use genesis::genesis_block_hash;
-pub use mine::mine;
-pub use serialize::serialize_header;
-pub use sha256d::sha256d;
+// Public API modules
+pub(crate) mod boundary_impls;
+pub(crate) mod mining_round;
+pub mod prelude;
+pub mod traits;
 
-// Re-export primary public types for convenience
-pub use prism_btc_reduction::{MineError, MiningCertificate};
+pub use mining_round::MiningRound;
+pub use prism_btc_reduction::{BlockCertificate, ConvergenceFailure};
 pub use prism_btc_types::{BlockHash, BlockHeader, MerkleRoot, Target, TriadicCoords};
+pub use traits::{Boundary, BoundaryDecodeError, Triadic};
+
+/// Return the formally-grounded genesis block hash certificate.
+///
+/// Produced by `uor_ground!` at call time — cannot be fabricated.
+/// The `Grounded<BlockHash>` carries non-zero `unit_address` and W32 `witt_level_bits`.
+pub fn genesis() -> uor_foundation::enforcement::Grounded<BlockHash> {
+    genesis::genesis_block_hash_internal()
+}

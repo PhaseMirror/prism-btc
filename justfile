@@ -13,10 +13,6 @@ build-wasm:
 test:
     cargo test --workspace --exclude prism-btc-wasm
 
-# Run mining tests (ignored by default — require release mode for reasonable runtime)
-test-slow:
-    cargo test --workspace --release -- --ignored
-
 test-wasm:
     wasm-pack test crates/prism-btc-wasm --node
 
@@ -32,9 +28,9 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Compile-only check on the reduction crate — triggers uor_ground! genesis vector
+# Compile-only check on prism-btc — triggers uor_ground! genesis grounding
 check-genesis:
-    cargo check -p prism-btc-reduction
+    cargo check -p prism-btc
 
 verify:
     cd prism-btc-lean && lake update && lake build
@@ -43,7 +39,6 @@ verify-check:
     cd prism-btc-lean && lake check
 
 # Fast CI (excludes Lean and wasm-pack — run separately)
-# Mining tests are #[ignore]; use `just test-slow` to run them.
 ci:
     just fmt-check
     just check

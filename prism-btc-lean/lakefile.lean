@@ -1,7 +1,7 @@
 import Lake
 open Lake DSL
 
-package «prism-btc-lean» where
+package PrismBtcLean where
 
 -- Depend on UOR Foundation's Lean library (mirrors the Rust crate we depend on).
 -- Zero external dependencies beyond this — no mathlib.

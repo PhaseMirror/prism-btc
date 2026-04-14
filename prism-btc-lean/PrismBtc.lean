@@ -5,3 +5,4 @@ import PrismBtc.RingIdentity
 import PrismBtc.TriadicCoords
 import PrismBtc.FreeRankProtocol
 import PrismBtc.ShapeConstraint
+import PrismBtc.ConvergenceProtocol

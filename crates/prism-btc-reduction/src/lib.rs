@@ -1,15 +1,16 @@
-//! Nonce iteration and mining certificate for prism-btc.
+//! Nonce iteration and block certification for prism-btc.
 //!
-//! This crate provides the stateful components of the ψ-loop:
+//! This crate provides the stateful components of the σ-convergence loop:
 //!
-//! - [`NonceIter`] — iterates the full u32 nonce space `[0, 2^32)` in plain Rust.
-//!   The nonce is the free dimension; no UOR machinery is needed to iterate it.
-//! - [`MiningCertificate`] — wraps the un-fabricatable `Grounded<BlockHash>` produced
-//!   by `uor_foundation::pipeline::run_pipeline` together with the winning nonce and
-//!   the hash's [`prism_btc_types::TriadicCoords`].
-//! - [`genesis_grounded`] — returns a compile-time-verified `Grounded<BlockHash>` for
-//!   the Bitcoin genesis block via `uor_ground!`.
-//! - [`MineError`] — failure modes from the mining loop.
+//! - [`BlockCertificate`] — wraps the un-fabricatable `Grounded<BlockHash>` produced
+//!   by `uor_foundation::pipeline::run_pipeline` together with the triadic coordinates.
+//!   All fields private; nonce is never observable.
+//! - [`run_convergence`] — runs the σ-convergence loop over a (header, target) pair.
+//!   The σ-projection (SHA256d) is passed as a closure from `prism-btc`.
+//! - [`certify_wire_bytes`] — certifies an existing 80-byte wire header by re-running
+//!   the σ-projection and `run_pipeline`. Used by `Boundary::decode`.
+//! - [`ConvergenceFailure`] — failure modes from the σ-convergence loop.
+//! - [`CertifyError`] — failure modes from `certify_wire_bytes`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -17,11 +18,10 @@
 extern crate alloc;
 
 pub mod certificate;
+pub mod convergence;
 pub mod error;
-pub mod nonce_iter;
-pub mod vectors;
+pub(crate) mod nonce_iter;
 
-pub use certificate::MiningCertificate;
-pub use error::MineError;
-pub use nonce_iter::NonceIter;
-pub use vectors::genesis_grounded;
+pub use certificate::BlockCertificate;
+pub use convergence::{certify_wire_bytes, run_convergence};
+pub use error::{CertifyError, ConvergenceFailure};

@@ -1,17 +1,20 @@
 use sha2::{Digest, Sha256};
 
-/// Double-SHA256: SHA256(SHA256(data)), returned in Bitcoin display byte order.
+/// σ-projection: maps the 80-byte block header to a 32-byte Datum candidate.
 ///
-/// Bitcoin stores 256-bit hash integers in little-endian byte order internally,
-/// but displays them with bytes reversed (most-significant byte first). This function
-/// reverses the sha2 output bytes so the returned array matches the display convention:
-/// `returned[0]` is the most significant byte, enabling straightforward lexicographic
-/// comparison with the target byte array from `Target::to_bytes()`.
+/// This is NOT the UOR ψ-map. Foundation reserves ψ for the categorical functor
+/// chain ψ_1..ψ_9 (Constraints → Nerve → Chain → Homology → … → KInvariants).
+/// SHA256d is a non-structure-preserving avalanche hash with no algebraic
+/// obligations to satisfy. It is called the σ-projection (ingestion function)
+/// to distinguish it from the ψ family.
 ///
-/// This is the ψ-map — the specific isometry that maps the 80-byte block header
-/// (CompileUnit) to a 32-byte candidate Datum (BlockHash).
+/// Bitcoin stores 256-bit hash integers in little-endian byte order internally
+/// but displays them with bytes reversed (most-significant byte first). This
+/// function reverses the sha2 output to match display convention so the
+/// returned array is lexicographically comparable with the target byte array
+/// from `Target::to_bytes()`.
 #[inline]
-pub fn sha256d(data: &[u8]) -> [u8; 32] {
+pub(crate) fn sha256d(data: &[u8]) -> [u8; 32] {
     let first = Sha256::digest(data);
     let second = Sha256::digest(first);
     let mut result: [u8; 32] = second.into();
