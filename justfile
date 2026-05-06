@@ -97,3 +97,49 @@ regtest-test:
     PRISM_RPC_PASS=demo \
     PRISM_PAYOUT="$ADDR" \
       cargo test -p prism-btc-node --release -- --ignored --nocapture
+
+# Bring up a pruned testnet4 node. Initial block download is ~few hundred MB
+# and takes 20–60 minutes on first run; subsequent starts are instant.
+# Override datadir with PRISM_TESTNET4_DATA.
+testnet4-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DATADIR="${PRISM_TESTNET4_DATA:-$HOME/testnet4-data}"
+    mkdir -p "$DATADIR"
+    cat > "$DATADIR/bitcoin.conf" <<EOF
+    chain=testnet4
+    server=1
+    prune=2000
+    [testnet4]
+    rpcuser=prism
+    rpcpassword=demo
+    rpcbind=127.0.0.1
+    rpcallowip=127.0.0.1
+    rpcport=48332
+    EOF
+    bitcoind -datadir="$DATADIR" -daemon
+    echo "testnet4 bitcoind starting; tail $DATADIR/testnet4/debug.log for IBD progress"
+
+testnet4-status:
+    bitcoin-cli -datadir="${PRISM_TESTNET4_DATA:-$HOME/testnet4-data}" getblockchaininfo
+
+# Run a prism-mine session against testnet4. Will print MH/s; finding a block
+# with CPU-only is unrealistic at testnet4 difficulty — this proves the
+# public-network plumbing (template fetch, parallel σ-convergence, tip-watch).
+testnet4-mine THREADS="0" DURATION_SEC="300":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DATADIR="${PRISM_TESTNET4_DATA:-$HOME/testnet4-data}"
+    bitcoin-cli -datadir="$DATADIR" -rpcwait createwallet "prism" 2>/dev/null || true
+    ADDR=$(bitcoin-cli -datadir="$DATADIR" getnewaddress "" "bech32")
+    echo "Payout: $ADDR (threads={{THREADS}}, duration {{DURATION_SEC}}s)"
+    cargo build --release -p prism-btc-node
+    THREADS_ARG=""
+    [ "{{THREADS}}" != "0" ] && THREADS_ARG="--threads {{THREADS}}"
+    timeout {{DURATION_SEC}} ./target/release/prism-mine \
+      --rpc-url http://127.0.0.1:48332 \
+      --rpc-user prism --rpc-pass demo \
+      --network testnet4 \
+      --payout "$ADDR" \
+      --session $THREADS_ARG \
+      --blocks 1 || echo "duration limit reached or interrupt"

@@ -39,7 +39,7 @@ hierarchy means downstream cannot smuggle in a different `Sigma`.
 | [`prism-btc-reduction`](crates/prism-btc-reduction/) | σ-convergence loop (`run_convergence`), wire serialization, `block_hash_shape_certificate`, `BlockCertificate<Sigma>`, `Fnv1aHasher16` |
 | [`prism-btc`](crates/prism-btc/) | Public API: `MiningRound`, `BlockCertificate`, `Boundary`, `genesis()` |
 | [`prism-btc-wasm`](crates/prism-btc-wasm/) | `wasm-bindgen` wrapper: `JsBlockHeader`, `mine_block()` (distributed via wasm-pack, not crates.io) |
-| [`prism-btc-node`](crates/prism-btc-node/) | Bitcoin Core RPC integration: `PrismMiner`, `prism-mine` CLI — fetches `getblocktemplate`, builds coinbase + merkle root via `rust-bitcoin`, mines via `prism_btc::MiningRound`, submits via `submitblock`. Demonstrably accepted by Bitcoin Core on regtest |
+| [`prism-btc-node`](crates/prism-btc-node/) | Bitcoin Core RPC integration. Two layers: `PrismMiner` (single-shot, regtest-friendly) and `MiningSession` (long-running: parallel σ-convergence over the W32 nonce ring via rayon, coinbase extranonce rolling, tip-staleness watcher with mid-search cancellation, hash-rate reporter, mainnet airlock). The `prism-mine` CLI drives both modes and connects to any network bitcoind supports — regtest, signet, testnet3, testnet4, mainnet |
 | [`prism-btc-lean/`](prism-btc-lean/) | Lean 4 formal proofs: ring identity (W8/W32), triadic coords, FreeRank protocol, shape constraint monotonicity, σ-convergence termination |
 
 ## Quick start
@@ -179,6 +179,45 @@ Convergence termination is formally proven in Lean
 ([`prism-btc-lean/PrismBtc/ConvergenceProtocol.lean`](prism-btc-lean/PrismBtc/ConvergenceProtocol.lean)):
 the loop either returns a certificate or exhausts the finite nonce fiber — no
 third outcome.
+
+## Real-network mining (`prism-btc-node`)
+
+The `prism-mine` binary connects to any running `bitcoind` and drives the full
+template → mine → submit cycle. Two modes:
+
+**Single-shot** (default): one template, one 2^32 serial scan, submit once.
+For regtest where every header at trivial difficulty satisfies.
+
+```bash
+just regtest-demo   # spins up bitcoind, mines 10 blocks
+```
+
+**Session** (`--session`): long-running loop with the four pieces real-network
+mining needs.
+
+```bash
+prism-mine \
+  --rpc-url http://127.0.0.1:8332 \
+  --rpc-user RPCUSER --rpc-pass RPCPASS \
+  --network testnet4 \
+  --payout TB1Q... \
+  --session \
+  --threads 8 \
+  --blocks 1
+```
+
+What the session adds on top of single-shot:
+
+| Layer | What it does | Why |
+|---|---|---|
+| **Tip-staleness watcher** | Independent RPC client polls `getbestblockhash` every 500 ms; on tip change, sets the inner cancel flag | A new block on the network invalidates the current parent — wasted work otherwise |
+| **Coinbase extranonce rolling** | Bumps a u64 in the coinbase scriptSig on every `NoMatch::Exhausted`, recomputes merkle, retries | 2^32 nonces per template is a hard wall at non-trivial difficulty |
+| **Parallel σ-convergence** | rayon partitions the W32 ring into one coset per worker; first finder wins via shared atomic | The natural Z/(2^32)Z partition; SIMD-clean within each coset |
+| **Hash-rate reporter** | Sidecar thread reads a shared `AtomicU64` hash counter and prints instant + average MH/s every 5 s | Operational visibility for long runs |
+
+**Safety airlocks:**
+- **Chain-mismatch guard**: refuses to mine if `getblockchaininfo.chain` disagrees with the requested `--network`.
+- **Mainnet opt-in**: `--network mainnet` requires `--i-know-what-im-doing`. Mainnet difficulty (~PH/s) means a CPU miner cannot find a block in any sane time, so the flag exists to prevent accidental misconfiguration of a long-running deployment.
 
 ## WebAssembly
 
