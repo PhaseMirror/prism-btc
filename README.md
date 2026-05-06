@@ -219,6 +219,30 @@ What the session adds on top of single-shot:
 - **Chain-mismatch guard**: refuses to mine if `getblockchaininfo.chain` disagrees with the requested `--network`.
 - **Mainnet opt-in**: `--network mainnet` requires `--i-know-what-im-doing`. Mainnet difficulty (~PH/s) means a CPU miner cannot find a block in any sane time, so the flag exists to prevent accidental misconfiguration of a long-running deployment.
 
+### Demonstrated against testnet4
+
+8-thread session at testnet4 height 133927, target bits `0x1902deb9`:
+
+```
+prism-mine [session]: connected to http://127.0.0.1:48332 on Testnet4
+session: new template at height 133927 (prev 00000000…1436a5, target_bits 1902deb9)
+session: extranonce=0 hashes=154257543 (30.81 MH/s instant, 30.81 MH/s avg)
+session: extranonce=0 hashes=308883115 (30.90 MH/s instant, 30.85 MH/s avg)
+session: tip changed mid-search, refetching template
+session: new template at height 133928 (prev 00000000…551b81, target_bits 1902deb9)
+session: extranonce=0 hashes=154939166 (30.94 MH/s instant, 30.94 MH/s avg)
+…
+```
+
+What this run proves end-to-end against the live testnet4 network:
+1. Chain-mismatch guard passed — node confirmed `chain=testnet4` matches `--network testnet4`.
+2. `getblocktemplate` succeeded against a fully-synced public node (with real bits, real prev_hash, real coinbase value).
+3. Parallel σ-convergence runs at ~31 MH/s on 8 cores against the real-network template.
+4. Tip-staleness watcher fires correctly: the session noticed a block arriving on testnet4 (height 133927 minted by another miner), set the inner cancel flag, and re-fetched a template with the new parent (`prev=00000000…551b81`).
+5. Hash-rate reporter prints throughput throughout.
+
+A block was not mined — at target bits `0x1902deb9` (~8 leading zero bytes ≈ 2^64 expected work), CPU mining cannot find a block in any sane time. The session is operationally complete; only hashing power is missing. The `BlockCertificate<DigestProjectionMap>` it returns when a winning nonce is found is identical in shape to the one the regtest demo already produces and `submitblock` already accepts.
+
 ## WebAssembly
 
 ```bash
