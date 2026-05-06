@@ -1,13 +1,21 @@
 //! Bitcoin Core RPC integration for prism-btc.
 //!
-//! End-to-end mining: fetch a block template from a running bitcoind, build the
-//! coinbase + merkle tree using rust-bitcoin, hand the header to
-//! [`prism_btc::MiningRound`] for σ-convergence, then reassemble and submit
-//! the full block.
+//! Two layers:
+//!
+//! - [`PrismMiner::mine_one_block`] — single-shot: fetch one template, search
+//!   2^32 nonces serially, submit on success. Convenient for regtest tests
+//!   where every nonce fiber satisfies trivially.
+//! - [`MiningSession::mine_until_block`] — long-running: extranonce rolling,
+//!   tip-staleness cancellation, parallel σ-convergence over the W32 ring,
+//!   periodic hash-rate reporting. This is the real-network path.
 //!
 //! prism-btc itself owns the σ-convergence loop and the typed certificate
 //! ([`prism_btc::BlockCertificate`]); rust-bitcoin owns the
 //! transaction/script/merkle machinery; this crate is the wiring.
+
+pub mod session;
+
+pub use session::{MinedBlock as SessionMinedBlock, MiningSession, SessionConfig};
 
 use anyhow::{bail, Context, Result};
 use bitcoin::absolute::LockTime;
@@ -48,11 +56,22 @@ impl PrismMiner {
         network: Network,
     ) -> Result<Self> {
         let client = Client::new(rpc_url, auth).context("RPC client connect")?;
+        // Chain-mismatch guard: refuse to mine if the node says it's on a
+        // different chain than the caller declared.
+        let info = client
+            .get_blockchain_info()
+            .context("getblockchaininfo for chain-mismatch guard")?;
+        if info.chain != network {
+            bail!(
+                "chain-mismatch guard: node is on {:?} but --network is {network:?}",
+                info.chain
+            );
+        }
         let address = payout_address
             .parse::<Address<_>>()
             .context("parse payout address")?
             .require_network(network)
-            .context("payout address network mismatch")?;
+            .with_context(|| format!("payout address is not for network {network:?}"))?;
         Ok(Self {
             client,
             payout_address: address,

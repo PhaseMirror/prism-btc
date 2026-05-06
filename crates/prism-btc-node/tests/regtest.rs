@@ -15,10 +15,13 @@
 //! Verifies the full pipeline: get template → mine via prism-btc → submit →
 //! chain height advances → block we minted appears at the new tip.
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use bitcoin::Network;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 
-use prism_btc_node::PrismMiner;
+use prism_btc_node::{MiningSession, PrismMiner, SessionConfig};
 
 fn env_or_skip(key: &str) -> Option<String> {
     match std::env::var(key) {
@@ -31,6 +34,7 @@ fn env_or_skip(key: &str) -> Option<String> {
 }
 
 #[test]
+#[serial_test::serial]
 #[ignore = "requires running bitcoind on regtest; set PRISM_RPC_* env vars"]
 fn mines_a_block_and_advances_the_chain() {
     let url = env_or_skip("PRISM_RPC_URL").expect("PRISM_RPC_URL");
@@ -72,4 +76,42 @@ fn mines_a_block_and_advances_the_chain() {
         32,
         "W32 level must propagate from the const-validated CompileUnit"
     );
+}
+
+#[test]
+#[serial_test::serial]
+#[ignore = "requires running bitcoind on regtest; set PRISM_RPC_* env vars"]
+fn session_mines_a_block_and_advances_the_chain() {
+    let url = env_or_skip("PRISM_RPC_URL").expect("PRISM_RPC_URL");
+    let user = env_or_skip("PRISM_RPC_USER").expect("PRISM_RPC_USER");
+    let pass = env_or_skip("PRISM_RPC_PASS").expect("PRISM_RPC_PASS");
+    let payout = env_or_skip("PRISM_PAYOUT").expect("PRISM_PAYOUT");
+
+    let observer = Client::new(&url, Auth::UserPass(user.clone(), pass.clone()))
+        .expect("observer RPC connect");
+    let height_before = observer.get_block_count().expect("getblockcount before");
+
+    let cfg = SessionConfig {
+        threads: Some(2),
+        // Tight tip poll for a fast test.
+        tip_poll: std::time::Duration::from_millis(100),
+        progress_every: std::time::Duration::from_secs(60),
+    };
+    let session = MiningSession::new(
+        &url,
+        Auth::UserPass(user, pass),
+        &payout,
+        Network::Regtest,
+        cfg,
+    )
+    .expect("MiningSession::new");
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mined = session.mine_until_block(cancel).expect("mine_until_block");
+
+    let height_after = observer.get_block_count().expect("getblockcount after");
+    assert_eq!(height_after, height_before + 1);
+    let tip = observer.get_best_block_hash().expect("getbestblockhash");
+    assert_eq!(tip, mined.hash);
+    assert_eq!(mined.cert.grounded().witt_level_bits(), 32);
 }

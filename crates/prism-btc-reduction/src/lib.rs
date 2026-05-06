@@ -27,6 +27,8 @@ pub mod convergence;
 pub mod error;
 pub mod hasher;
 pub(crate) mod nonce_iter;
+#[cfg(feature = "parallel")]
+pub mod parallel;
 pub mod serialize;
 pub mod sha256d;
 
@@ -35,5 +37,7 @@ pub use compile_unit::block_hash_shape_certificate;
 pub use convergence::{certify_wire_bytes, run_convergence};
 pub use error::{ConvergenceFailure, InvalidLength};
 pub use hasher::Fnv1aHasher16;
+#[cfg(feature = "parallel")]
+pub use parallel::{run_convergence_parallel, NoMatch};
 pub use serialize::serialize_header;
 pub use sha256d::sha256d;

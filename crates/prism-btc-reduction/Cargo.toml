@@ -15,7 +15,9 @@ categories    = ["cryptography::cryptocurrencies", "mathematics", "no-std"]
 uor-foundation  = { workspace = true }
 prism-btc-types = { path = "../prism-btc-types", version = "0.1.0" }
 sha2            = { workspace = true }
+rayon           = { version = "1.10", optional = true }
 
 [features]
-default = ["std"]
-std     = ["prism-btc-types/std"]
+default  = ["std"]
+std      = ["prism-btc-types/std"]
+parallel = ["std", "dep:rayon"]
