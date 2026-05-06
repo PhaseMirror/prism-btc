@@ -2,16 +2,16 @@
 //!
 //! Two layers:
 //!
-//! - [`PrismMiner::mine_one_block`] — single-shot: fetch one template, search
-//!   2^32 nonces serially, submit on success. Convenient for regtest tests
-//!   where every nonce fiber satisfies trivially.
-//! - [`MiningSession::mine_until_block`] — long-running: extranonce rolling,
-//!   tip-staleness cancellation, parallel σ-convergence over the W32 ring,
-//!   periodic hash-rate reporting. This is the real-network path.
+//! - [`PrismMiner::mine_one_block`] — single-shot: fetch one template,
+//!   call [`prism_btc::mine`], submit the assembled block. Convenient
+//!   for regtest where the W32 fiber's first index admits trivially.
+//! - [`MiningSession::mine_until_block`] — long-running: extranonce
+//!   rolling + tip-staleness watcher + parallel `mine_parallel` per
+//!   (template, extranonce) pair.
 //!
-//! prism-btc itself owns the σ-convergence loop and the typed certificate
-//! ([`prism_btc::BlockCertificate`]); rust-bitcoin owns the
-//! transaction/script/merkle machinery; this crate is the wiring.
+//! prism-btc owns the mining inference (σ-projection, W32 traversal,
+//! shape attestation); rust-bitcoin owns the transaction/script/block
+//! container; this crate is the wiring.
 
 pub mod session;
 
@@ -35,7 +35,7 @@ use bitcoincore_rpc::json::{
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 
 use prism_btc::{
-    Bits, BlockCertificate, BlockHeader, ConvergenceFailure, MerkleRoot, MiningRound, Target,
+    mine, Bits, BlockHeader, MerkleRoot, MiningFailure, MiningWitness, NeverCancel, Target,
     Timestamp, Version,
 };
 
@@ -56,8 +56,6 @@ impl PrismMiner {
         network: Network,
     ) -> Result<Self> {
         let client = Client::new(rpc_url, auth).context("RPC client connect")?;
-        // Chain-mismatch guard: refuse to mine if the node says it's on a
-        // different chain than the caller declared.
         let info = client
             .get_blockchain_info()
             .context("getblockchaininfo for chain-mismatch guard")?;
@@ -79,10 +77,8 @@ impl PrismMiner {
         })
     }
 
-    /// Fetch a block template, mine it via prism-btc, submit, return summary.
+    /// Fetch a block template, mine it via [`prism_btc::mine`], submit, return summary.
     pub fn mine_one_block(&self) -> Result<MinedBlock> {
-        // Pick rules that match the network. Signet needs the Signet rule;
-        // others reject it.
         let rules: &[GetBlockTemplateRules] = match self.network {
             Network::Signet => &[
                 GetBlockTemplateRules::SegWit,
@@ -107,24 +103,19 @@ impl PrismMiner {
             .context("getblocktemplate RPC")?;
 
         let job = MiningJob::from_template(&template, &self.payout_address)?;
-        let header = job.header.clone();
-        let target = job.target;
 
-        let cert = MiningRound::new(header, target)
-            .converge()
-            .map_err(|e| match e {
-                ConvergenceFailure::FiberExhausted => anyhow::anyhow!(
-                    "nonce fiber exhausted (2^32 candidates) without satisfying target"
-                ),
-            })?;
+        // Delegate the mining inference to prism-btc — the prism
+        // implementor for Bitcoin. The boundary's job is template
+        // construction and submission, not the mining algorithm.
+        let outcome = mine(&job.header, job.target, &NeverCancel).map_err(|e| match e {
+            MiningFailure::NoMatch => {
+                anyhow::anyhow!("W32 fiber exhausted (2^32 candidates) without satisfying target")
+            }
+            MiningFailure::Cancelled => anyhow::anyhow!("mine() cancelled"),
+        })?;
 
-        // The mined wire bytes carry the winning nonce at [76..80].
-        let wire80 = cert.encode_wire();
-        let nonce = u32::from_le_bytes([wire80[76], wire80[77], wire80[78], wire80[79]]);
+        let block = job.assemble(outcome.nonce);
 
-        let block = job.assemble(nonce);
-
-        // Returns Ok(()) on accept; Err on reject (with bitcoind's reason string).
         self.client
             .submit_block(&block)
             .context("submitblock rejected")?;
@@ -132,8 +123,8 @@ impl PrismMiner {
         Ok(MinedBlock {
             hash: block.block_hash(),
             height: template.height,
-            nonce,
-            cert,
+            nonce: outcome.nonce,
+            witness: outcome.witness,
             tx_count: block.txdata.len(),
         })
     }
@@ -143,18 +134,19 @@ impl PrismMiner {
     }
 }
 
+/// Summary returned to the caller of [`PrismMiner::mine_one_block`].
 pub struct MinedBlock {
     pub hash: BtcBlockHash,
     pub height: u64,
     pub nonce: u32,
-    pub cert: BlockCertificate,
+    pub witness: MiningWitness,
     pub tx_count: usize,
 }
 
 /// All the per-template state a mining attempt needs.
-struct MiningJob {
-    header: BlockHeader,
-    target: Target,
+pub(crate) struct MiningJob {
+    pub(crate) header: BlockHeader,
+    pub(crate) target: Target,
     coinbase: Transaction,
     other_txs: Vec<Transaction>,
     btc_version: BtcBlockVersion,
@@ -165,16 +157,23 @@ struct MiningJob {
 }
 
 impl MiningJob {
-    fn from_template(tpl: &GetBlockTemplateResult, payout: &Address) -> Result<Self> {
+    pub(crate) fn from_template(tpl: &GetBlockTemplateResult, payout: &Address) -> Result<Self> {
+        Self::from_template_with_extranonce(tpl, payout, 0)
+    }
+
+    pub(crate) fn from_template_with_extranonce(
+        tpl: &GetBlockTemplateResult,
+        payout: &Address,
+        extranonce: u64,
+    ) -> Result<Self> {
         let other_txs: Vec<Transaction> = tpl
             .transactions
             .iter()
             .map(|t| t.transaction().context("decode template tx"))
             .collect::<Result<_>>()?;
 
-        let coinbase = build_coinbase_tx(tpl, payout)?;
+        let coinbase = build_coinbase_tx(tpl, payout, extranonce)?;
 
-        // Block merkle root: leaves are the legacy (non-witness) txids.
         let mut leaves = Vec::with_capacity(other_txs.len() + 1);
         leaves.push(coinbase.compute_txid().to_raw_hash());
         for tx in &other_txs {
@@ -184,7 +183,6 @@ impl MiningJob {
             .context("merkle root computation (empty leaf set unexpected)")?;
         let btc_merkle = bitcoin::TxMerkleNode::from_raw_hash(merkle_root_raw);
 
-        // Decode `bits`: 4-byte big-endian compact target as returned by the RPC.
         if tpl.bits.len() != 4 {
             bail!(
                 "getblocktemplate.bits has unexpected length {}",
@@ -194,9 +192,6 @@ impl MiningJob {
         let bits_u32 = u32::from_be_bytes([tpl.bits[0], tpl.bits[1], tpl.bits[2], tpl.bits[3]]);
         let btc_bits = CompactTarget::from_consensus(bits_u32);
 
-        // Bitcoin's wire-format header timestamp is u32 (Y2106 protocol limit);
-        // bitcoind's RPC returns u64 only because of JSON typing. A u64 that
-        // doesn't fit in u32 is a protocol-violating template — bail loudly.
         let time_u32: u32 = tpl.current_time.try_into().with_context(|| {
             format!(
                 "template current_time {} exceeds u32::MAX",
@@ -204,16 +199,11 @@ impl MiningJob {
             )
         })?;
 
-        // Block version is i32 in the wire format; the RPC returns u32. Values
-        // above i32::MAX would be a protocol-violating template.
         let version_i32: i32 = tpl
             .version
             .try_into()
             .with_context(|| format!("template version {} exceeds i32::MAX", tpl.version))?;
 
-        // prev_hash and merkle: rust-bitcoin's BlockHash/TxMerkleNode are in
-        // internal (little-endian-display) order — exactly what goes into the
-        // wire-format header field and into our BlockHeader slots.
         let prev_bytes: [u8; 32] = tpl.previous_block_hash.to_byte_array();
         let merkle_bytes: [u8; 32] = merkle_root_raw.to_byte_array();
 
@@ -239,10 +229,8 @@ impl MiningJob {
         })
     }
 
-    /// Splice the winning nonce back into a full rust-bitcoin Block. Uses
-    /// rust-bitcoin's serialisation for the wire payload so we inherit its
-    /// segwit-aware tx encoding rules; prism-btc's role was to find the nonce.
-    fn assemble(self, nonce: u32) -> Block {
+    /// Splice the winning nonce back into a full rust-bitcoin Block.
+    pub(crate) fn assemble(self, nonce: u32) -> Block {
         let header = BtcHeader {
             version: self.btc_version,
             prev_blockhash: self.btc_prev_hash,
@@ -259,15 +247,11 @@ impl MiningJob {
 }
 
 /// Build a BIP141-compliant coinbase transaction.
-///
-/// - Single coinbase input with scriptSig containing BIP34 height push +
-///   a "prism-btc" tag (acts as extranonce; bitcoind doesn't require it).
-/// - Output 0: full block reward to the payout address.
-/// - Output 1: OP_RETURN with the BIP141 witness commitment, when the
-///   template provides one (segwit-active networks).
-/// - Witness: the coinbase's single TxIn carries one item — 32 zero bytes,
-///   the BIP141 "witness reserved value".
-fn build_coinbase_tx(tpl: &GetBlockTemplateResult, payout: &Address) -> Result<Transaction> {
+fn build_coinbase_tx(
+    tpl: &GetBlockTemplateResult,
+    payout: &Address,
+    extranonce: u64,
+) -> Result<Transaction> {
     let height_i64: i64 = tpl
         .height
         .try_into()
@@ -275,6 +259,7 @@ fn build_coinbase_tx(tpl: &GetBlockTemplateResult, payout: &Address) -> Result<T
 
     let script_sig = ScriptBuilder::new()
         .push_int(height_i64)
+        .push_slice(extranonce.to_le_bytes())
         .push_slice(b"prism-btc")
         .into_script();
 
@@ -291,9 +276,6 @@ fn build_coinbase_tx(tpl: &GetBlockTemplateResult, payout: &Address) -> Result<T
         script_pubkey: payout.script_pubkey(),
     }];
 
-    // The template's `default_witness_commitment` is the *full* scriptPubKey
-    // (OP_RETURN + 36-byte push of [0xaa, 0x21, 0xa9, 0xed, <32-byte commit>]),
-    // not just the digest. Empty ScriptBuf means no segwit / no commitment.
     let commitment_script: &ScriptBuf = &tpl.default_witness_commitment;
     if !commitment_script.as_bytes().is_empty() {
         outputs.push(TxOut {

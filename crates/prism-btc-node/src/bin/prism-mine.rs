@@ -44,7 +44,7 @@ struct Args {
     session: bool,
 
     /// Worker thread count for the session's parallel σ-convergence.
-    /// Default: rayon's `current_num_threads()`.
+    /// Default: `std::thread::available_parallelism()`.
     #[arg(long)]
     threads: Option<usize>,
 

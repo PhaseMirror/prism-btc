@@ -2,19 +2,17 @@
 name          = "prism-btc"
 version       = "0.1.0"
 edition       = "2021"
-description   = "Bitcoin mining as σ-convergence over the nonce fiber of the 32×W8 Datum space"
+description   = "Real-time structural inference for Bitcoin proof-of-work, as a Prism application of the UOR Foundation"
 license       = "Apache-2.0"
 repository    = "https://github.com/UOR-Foundation/prism-btc"
 homepage      = "https://github.com/UOR-Foundation/prism-btc"
 documentation = "https://docs.rs/prism-btc"
 readme        = "../../README.md"
-keywords      = ["bitcoin", "mining", "uor", "formal-verification", "no-std"]
+keywords      = ["bitcoin", "mining", "uor", "prism", "no-std"]
 categories    = ["cryptography::cryptocurrencies", "mathematics", "no-std"]
 
 [dependencies]
-uor-foundation      = { workspace = true }
-prism-btc-types     = { path = "../prism-btc-types", version = "0.1.0" }
-prism-btc-reduction = { path = "../prism-btc-reduction", version = "0.1.0" }
+uor-foundation = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -25,7 +23,4 @@ harness = false
 
 [features]
 default = ["std"]
-std     = [
-    "prism-btc-types/std",
-    "prism-btc-reduction/std",
-]
+std     = []

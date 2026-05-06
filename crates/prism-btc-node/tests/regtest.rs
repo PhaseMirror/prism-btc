@@ -69,10 +69,10 @@ fn mines_a_block_and_advances_the_chain() {
     );
 
     // The mined block carries a non-zero, type-certified grounding witness.
-    let unit_addr = mined.cert.grounded().unit_address().as_u128();
+    let unit_addr = mined.witness.unit_address().as_u128();
     assert_ne!(unit_addr, 0, "grounded unit_address must be non-zero");
     assert_eq!(
-        mined.cert.grounded().witt_level_bits(),
+        mined.witness.witt_level_bits(),
         32,
         "W32 level must propagate from the const-validated CompileUnit"
     );
@@ -113,5 +113,5 @@ fn session_mines_a_block_and_advances_the_chain() {
     assert_eq!(height_after, height_before + 1);
     let tip = observer.get_best_block_hash().expect("getbestblockhash");
     assert_eq!(tip, mined.hash);
-    assert_eq!(mined.cert.grounded().witt_level_bits(), 32);
+    assert_eq!(mined.witness.witt_level_bits(), 32);
 }

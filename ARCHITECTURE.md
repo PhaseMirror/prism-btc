@@ -397,38 +397,58 @@ Pairwise SHA-256d up the transaction tree. Declared as:
 
 Closure: `Sha256dProjection` (§4.2). No new primitives.
 
-### 4.6 `NonceFiberTraversal` (foundation kernel-convergence composition)
+### 4.6 `NonceFiberTraversal` (prism-btc runtime)
 
-The W32 nonce fiber traversal — the structural inference's load-bearing
-operation. Declared as a `kernel::convergence` term over `Z/(2^32)Z`
-with:
+The W32 nonce fiber traversal — the structural inference's
+load-bearing operation. **prism-btc is the prism implementor for the
+Bitcoin use case; the traversal is therefore prism-btc's runtime, not
+a foundation-supplied primitive.** Foundation provides the substrate
+(sealed types, `Hasher` and `HostBounds` traits, `Term` and
+`PrismitiveOp` vocabulary, mint primitives, trace structure); prism-btc
+provides the runtime that traverses the typed structure declared via
+that substrate.
 
-- **Index domain**: the W32 ring, foundation-vocabulary-typed via
-  `WittLevel::W32` and the `integer-handling` successor function (`n
-  → n + 1 mod 2^32`).
-- **Per-index map**: `Sha256dProjection ∘ HeaderSerialization` applied
-  with the current fiber index as the nonce field of the header.
-- **Halt predicate**: admission of the projected 32-byte digest to the
-  `TargetSubBundle` shape (§4.8). The first index whose projection
-  admits is the traversal's terminal point.
-- **Fallback**: if no index in W32 admits, the traversal completes
-  without admission (`PipelineFailure` is emitted by the pipeline; the
-  application boundary increments the extranonce and re-invokes
-  pipeline::run, §6.5).
+Structural declaration (compile-time):
 
-Determinism: the traversal visits indices in the canonical W32
-successor order starting at 0 (foundation's deterministic ring
-traversal order). Same template + same extranonce ⇒ same terminal
-index. No randomness.
+- **Index domain**: the W32 ring. Declared at the type level via
+  `WittLevel::W32` and the `Term::Application { operator: PrimitiveOp::Succ, .. }`
+  successor composition.
+- **Per-index map**: `Sha256dProjection ∘ HeaderSerialization`,
+  declared at the type level as a `Term::Application` chain over
+  prism-btc's chosen `PrimitiveOp` decomposition. The runtime that
+  evaluates the composition is `prism_btc::ops::sigma::sha256d`
+  (pure-Rust SHA-256d, no external crate).
+- **Halt predicate**: admission of the projected 32-byte digest to
+  `TargetSubBundle` (§4.8) — encoded structurally as `ConstraintRef`s
+  on the shape, evaluated at runtime by prism-btc's traversal.
 
-This is the operation that **replaces** the rayon for-loop currently
-in `prism-btc-reduction/src/parallel.rs`. The traversal is
-foundation-typed end-to-end; every step (per-index visit, per-index
-projection, per-index admission decision) is a `PrimitiveOp`
-composition reachable from the foundation's primitive set. Parallel
-execution within the traversal is permitted as a foundation-level
-implementation detail (the W32 ring has natural coset partitions); it
-does not change the abstract operation.
+Runtime evaluation (prism-btc's job):
+
+- The traversal visits W32 indices in canonical successor order
+  starting at 0. prism-btc's runtime walks the fiber, applying the
+  σ-projection at each point and testing admission. On first admit,
+  the traversal terminates and prism-btc invokes foundation's
+  `pipeline::run` (or `pipeline::run_const`) to mint a
+  `Grounded<ConstrainedTypeInput, MiningTag>` certifying the shape.
+- On exhaustion, prism-btc returns `MiningFailure::NoMatch`; the
+  bitcoind boundary (`prism-btc-node`) increments the extranonce and
+  re-invokes `prism_btc::mine` with a new `TemplatePrefixDatum`.
+- Determinism: same template + same extranonce + same `Sha256dHasher`
+  → same terminal index. No randomness.
+
+Parallelism: prism-btc's runtime MAY partition the W32 ring across
+threads (the natural coset partition over `Z/(2^32)Z`); first-finder
+wins. This is a runtime implementation detail and does not change
+the categorical structure.
+
+**This is the operation that replaces the rayon for-loop currently
+in `prism-btc-reduction/src/parallel.rs`.** The replacement is not a
+foundation primitive — foundation never claimed to ship one — but a
+prism-btc runtime that respects the foundation-typed structural
+declaration (Term composition + ConstrainedTypeShape constraints).
+The categorical routing claim holds at the type level: the shapes
+and Term compositions declare the structure; the prism-btc runtime
+walks it.
 
 ### 4.7 `TemplatePrefixShape` (`ConstrainedTypeShape`)
 
@@ -1125,37 +1145,75 @@ non-conforming. There is no partial conformance.
 
 ---
 
-## 13. Conformance with current `uor-foundation` (0.3.1)
+## 13. Responsibility split: foundation substrate vs prism implementor
 
-ADR-001 makes the wiki normative; the source code is accountable to
-it. In practice, prism-btc must compile against an extant
-`uor-foundation` release. This section enumerates the points where
-foundation 0.3.1's actual surface is required to support the
-architecture above, and what the corrective step is if it does not.
+The wiki distinguishes two roles, and prism-btc occupies the second:
 
-| Architecture requirement | Foundation 0.3.1 surface | Status |
+- **`uor-foundation` is the substrate.** It provides sealed types
+  (`Datum`, `Triad`, `Derivation`, `FreeRank`, `Validated`,
+  `Grounded`, `Certified`), the closed `PrimitiveOp` vocabulary, the
+  `Term` AST variants, the substitution-axis traits (`Hasher`,
+  `HostBounds`, `HostTypes`, `GroundingMapKind`), the mint primitives
+  (`mint_datum`, `mint_triad`, `mint_derivation`, `mint_freerank`),
+  the `Trace`/`TraceEvent` structure, and the
+  `enforcement::replay::certify_from_trace` function. It does **not**
+  ship a runtime that evaluates `Term`s, a fold-with-halt-on-predicate
+  primitive, a SHA-256 implementation, or any other "operations
+  helper". `Term` is compile-time metadata; the substrate's
+  `pipeline::run` is a deterministic certification path
+  (preflights → SAT → hash → mint), not an evaluator.
+- **`prism-btc` is the prism implementor for the Bitcoin use case.**
+  It is responsible for everything the substrate delegates to the
+  prism layer: the actual evaluation of the typed structure for
+  Bitcoin mining, including the σ-projection runtime (pure-Rust
+  SHA-256d), the W32 fiber traversal, the merkle-tree derivation,
+  the coinbase scriptSig assembly, the header serialisation, the
+  `Grounding` impls, the `ConstrainedTypeShape` impls, the
+  `Hasher` and `HostBounds` impls, and the `mine` entry point that
+  ties them together.
+
+The architecture above (§§1–11) is therefore a specification of
+prism-btc's runtime, expressed in foundation vocabulary, not a list
+of demands on foundation. Foundation does not need to be amended for
+prism-btc to reach the defined state; prism-btc just needs to be
+written.
+
+### 13.1 What foundation 0.3.1 supplies, used as-is
+
+| Surface | Foundation path | prism-btc usage |
 |---|---|---|
-| Sealed `Datum`, `Triad`, `Derivation`, `FreeRank` | `enforcement::{Datum, Triad, Derivation, FreeRank}` | Confirmed present. |
-| Sealed `Validated`, `Grounded`, `Certified` | `enforcement::{Validated, Grounded}`; `prism-verify` provides `Certified` | Confirmed present. |
-| `mint_*` primitives | foundation's `enforcement` module's crate-internal constructors | Confirmed present (used by current code). |
-| `CompileUnitBuilder` + `Validated<CompileUnit, FinalPhase>` | `enforcement::{CompileUnit, CompileUnitBuilder, Validated, CompileTime}` | Confirmed present. |
-| `pipeline::run` and `pipeline::run_const` | `pipeline::{run, run_const}` | Confirmed present. |
-| Closed `PrimitiveOp` set | `kernel::primitives` (per Building Block View) | Surface exact-name TBD; the existing 0.3.1 enforcement surface contains the operations under various module paths. The reconciliation will use whatever 0.3.1 names them. If a required primitive is genuinely absent, ADR-013's amendment-first discipline applies. |
-| `kernel::convergence` for W32 fold-with-halt | `kernel::convergence` (per Building Block View) | Surface exact-name TBD. Foundation 0.3.1 has a module named `kernel::convergence`; whether it provides the W32 fold-with-halt-on-admit signature §4.6 requires must be confirmed at reconciliation time. If absent, the foundation amendment is the corrective step (per ADR-013, ADR-015). |
-| `ConstrainedTypeShape` trait + `Grounding` trait | `pipeline::ConstrainedTypeShape`, the `Grounding` trait at the foundation surface | Confirmed present. |
-| `HostBounds` trait | `enforcement::HostBounds` (top-level `lib.rs`) | Confirmed present (used by current code's `Fnv1aHasher16`). |
-| `Hasher` trait | `enforcement::Hasher` | Confirmed present. |
-| `Trace` and `TraceEvent` | `bridge::trace::{Trace, TraceEvent}` | Surface presence confirmed in 0.3.1 source; details of variant set TBD at reconciliation time. |
-| `prism-verify::certify_from_trace` | not yet a separate `prism-verify` crate in 0.3.1 | The wiki specifies a separate `prism-verify` crate. Foundation 0.3.1 may not yet split this surface out. If absent, prism-btc imports replay machinery from wherever 0.3.1 places it (likely `enforcement`). The architecture commitment is to the wiki's name; the reconciliation wires through whichever module provides the function under whichever name. |
+| Sealed `Datum`, `Triad`, `Derivation`, `FreeRank` | `enforcement::{Datum, Triad, Derivation, FreeRank}` | Returned via mint primitives during admission. |
+| Sealed `Validated`, `Grounded`, `Certified` | `enforcement::{Validated, Grounded}` + `enforcement::replay::certify_from_trace` returning `Certified` | Returned by `pipeline::run` (Grounded) or replay (Certified). prism-btc never constructs them directly. |
+| `mint_*` primitives | `enforcement` module | Foundation's pipeline / replay machinery calls these; prism-btc does not. |
+| `CompileUnitBuilder` + `Validated<CompileUnit, FinalPhase>` | `enforcement::{CompileUnit, CompileUnitBuilder}` | Used to declare the BlockHash shape unit; const-validated via `validate_compile_unit_const`. |
+| `pipeline::run` / `pipeline::run_const` | `pipeline::{run, run_const}` | Used to mint the shape `Grounded` after prism-btc's traversal admits. The pipeline does not drive the traversal; it certifies the shape declaration. |
+| Closed `PrimitiveOp` set (10 generators) | `enums::PrimitiveOp` | Used as `Term::Application` operators in prism-btc's compile-time structural declarations. The 10 generators (`Neg, Bnot, Succ, Pred, Add, Sub, Mul, Xor, And, Or`) are sufficient to *type-encode* prism-btc's operations as compositions. They are not a runtime; the runtime is prism-btc's. |
+| `Term` (9 variants) | `enforcement::Term` | Used in `CompileUnitBuilder::root_term` to declare prism-btc's structural shape. Compile-time metadata. |
+| `ConstrainedTypeShape` trait + `ConstraintRef` | `pipeline::{ConstrainedTypeShape, ConstraintRef}` | Implemented by `TemplatePrefixShape` and `TargetSubBundle`. |
+| `HostBounds` trait | `enforcement::HostBounds` | Implemented by `PrismBtcBounds`. |
+| `Hasher` trait | `enforcement::Hasher` | Implemented by `Sha256dHasher` with arbitrary Rust code (the trait permits this; ADR-010 requires only determinism, fixed width, idempotence, distinct identifier). |
+| `Trace` and `TraceEvent` | `enforcement::{Trace, TraceEvent}` | Emitted by foundation's pipeline, consumed by `prism-verify` replay. |
+| `enforcement::replay::certify_from_trace` | `enforcement::replay::certify_from_trace` | Used by users to mint `Certified` from a `Trace` without invoking prism-btc's deciders or `Sha256dHasher`'s body (TC-05). |
 
-For any row above where 0.3.1's surface is named differently or
-structured differently from the wiki, the reconciliation uses 0.3.1's
-actual API. If 0.3.1 *lacks* a surface the architecture requires
-(e.g., the W32 fold-with-halt convergence primitive), the
-reconciliation pauses; an issue is opened against
-`UOR-Foundation/UOR-Framework`; foundation is amended; prism-btc's
-foundation pin is bumped; reconciliation resumes. ADR-013 + ADR-015 is
-the discipline; this document does not pre-amend the foundation.
+### 13.2 What prism-btc supplies as the prism implementor
+
+| Surface | prism-btc path | Role |
+|---|---|---|
+| `Sha256dHasher` | `prism_btc::shapes::hasher::Sha256dHasher` | Foundation `Hasher` impl. Body is pure-Rust SHA-256d. |
+| `PrismBtcBounds` | `prism_btc::shapes::bounds::PrismBtcBounds` | `HostBounds` impl with the four constants (§3.2). |
+| `TemplatePrefixShape`, `TargetSubBundle` | `prism_btc::shapes::{prefix, target_sub_bundle}` | `ConstrainedTypeShape` impls (§4.7, §4.8). |
+| `Sha256Compression`, `Sha256dProjection`, `HeaderSerialization`, `MerkleRootDerivation`, `CoinbaseConstruction` | `prism_btc::ops::*` | Each operation has two surfaces: a compile-time `Term::Application` declaration (for type-level routing) and a runtime function (the actual computation). |
+| `NonceFiberTraversal` | `prism_btc::ops::traversal` | The runtime W32 fiber walk. prism-btc's responsibility; not a foundation primitive. |
+| `mine()` | `prism_btc::lib::mine` | The public entry point. Orchestrates the runtime, calls `pipeline::run` to mint the shape `Grounded` after admission, returns `MiningOutcome`. |
+
+The substrate-vs-implementor split above is the architecture's
+load-bearing distinction. Where I previously wrote that 0.3.1 was
+"missing" things — `kernel::convergence`-as-search, `Term`-driven
+runtime evaluation, SHA-256 as a `PrimitiveOp` composition — those
+were category errors. Foundation does not ship those because it
+delegates them to the prism implementor. Reconciling prism-btc to
+the architecture is therefore a matter of prism-btc writing what is
+its responsibility to write, not waiting for foundation amendments.
 
 ---
 
