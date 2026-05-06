@@ -1,7 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use prism_btc::{BlockHeader, MiningRound, Target, TriadicCoords};
-use prism_btc_primitives::{Bits, Timestamp, Version};
-use prism_btc_types::MerkleRoot;
+use prism_btc_types::{Bits, MerkleRoot, Timestamp, Version};
 
 fn genesis_header() -> BlockHeader {
     // Merkle root in Bitcoin internal byte order (reversed from display).

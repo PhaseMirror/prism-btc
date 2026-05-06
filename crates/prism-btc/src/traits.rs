@@ -1,26 +1,35 @@
-use prism_btc_types::TriadicCoords;
-use uor_foundation::enforcement::PipelineFailure;
-
-/// Any certified hash type carries PRISM triadic coordinates (datum, stratum, spectrum).
-pub trait Triadic {
-    fn coords(&self) -> &TriadicCoords;
-}
+use uor_foundation::enforcement::{GroundingMapKind, Invertible, ProjectionMapKind, Total};
 
 /// A type that crosses the raw-bytes / certified-types boundary via decode/encode.
 ///
-/// `decode` always re-certifies by re-running the full UOR pipeline — it cannot be bypassed.
-/// `encode` reconstructs the canonical wire representation from private internal state.
+/// The `Ingest` and `Emit` associated types record, at the type level, the
+/// foundation morphism kinds that realise the round-trip:
+///
+/// - `Ingest: GroundingMapKind + Total + Invertible` — bytes flowing into a
+///   typed certificate. `Total + Invertible` means every well-formed wire
+///   payload decodes to exactly one certificate.
+/// - `Emit: ProjectionMapKind + Total + Invertible` — typed certificate
+///   flowing back to bytes. `Total + Invertible` closes the round-trip.
+///
+/// Together they form a **zero-cost isomorphism** between the wire-byte space
+/// and the certified-type space: encode → decode → encode is the identity on
+/// wire bytes; decode → encode → decode is the identity on certificates.
+///
+/// `decode` always re-certifies by re-running the full UOR pipeline — it
+/// cannot be bypassed.
 pub trait Boundary: Sized {
     type Error;
+    type Ingest: GroundingMapKind + Total + Invertible;
+    type Emit: ProjectionMapKind + Total + Invertible;
     fn decode(bytes: &[u8]) -> Result<Self, Self::Error>;
     fn encode(&self) -> Vec<u8>;
 }
 
 /// Decode error returned by `Boundary::decode` for `BlockCertificate`.
+///
+/// The shape pipeline is infallible (const-validated CompileUnit), so the
+/// only failure mode is a wrong byte-slice length.
 #[derive(Debug)]
-pub enum BoundaryDecodeError {
-    /// The byte slice was not exactly 80 bytes.
-    InvalidLength { got: usize },
-    /// The σ-projection output did not satisfy the UOR pipeline constraints.
-    PipelineRejected(PipelineFailure),
+pub struct BoundaryDecodeError {
+    pub got: usize,
 }

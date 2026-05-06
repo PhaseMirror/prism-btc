@@ -1,8 +1,7 @@
 use prism_btc::{
-    genesis, BlockCertificate, BlockHeader, Boundary, BoundaryDecodeError, MerkleRoot, MiningRound,
-    Target,
+    genesis, Bits, BlockCertificate, BlockHeader, Boundary, BoundaryDecodeError, MerkleRoot,
+    MiningRound, Target, Timestamp, Version,
 };
-use prism_btc_primitives::{Bits, Timestamp, Version};
 
 fn genesis_header() -> BlockHeader {
     // Merkle root in Bitcoin internal byte order (reversed from display).
@@ -33,7 +32,7 @@ fn mine_converges_and_satisfies_target() {
         .expect("easy target must converge");
 
     // Returned hash must satisfy the target constraint.
-    assert!(target.is_satisfied_by_bytes(&cert.coords().datum));
+    assert!(target.is_satisfied_by_bytes(cert.digest()));
     // Triadic coordinates must be populated.
     assert_ne!(cert.coords().datum, [0u8; 32], "datum must be non-zero");
     // Easy target (0x207fffff) requires at least one leading zero byte →
@@ -47,17 +46,17 @@ fn mine_converges_and_satisfies_target() {
 
 #[test]
 fn genesis_grounded_constant_is_certified() {
-    // genesis() runs uor_ground! at call time.
-    // Verify the Grounded<BlockHash> carries non-trivial certification metadata.
+    // genesis() runs the v0.3.1 const-validated CompileUnit through
+    // pipeline::run_const at call time and tags the result with BlockHashTag.
     let grounded_const = genesis();
-    // unit_address is a content-addressed FNV-1a hash of BlockHash's type IRI +
-    // constraint list — non-zero for any non-trivial constraint system.
+    // unit_address is a 128-bit content fingerprint derived from the CompileUnit's
+    // canonical byte layout — non-zero for any non-trivial shape declaration.
     assert_ne!(
-        grounded_const.unit_address(),
+        grounded_const.unit_address().as_u128(),
         0,
         "grounded unit_address must be non-zero"
     );
-    // W32 Witt level was requested in the uor_ground! macro and propagated.
+    // W32 Witt level was requested in the CompileUnit builder.
     assert_eq!(
         grounded_const.witt_level_bits(),
         32,
@@ -70,14 +69,34 @@ fn boundary_decode_rejects_wrong_length() {
     let short = [0u8; 79];
     let result = BlockCertificate::decode(&short);
     assert!(
-        matches!(result, Err(BoundaryDecodeError::InvalidLength { got: 79 })),
-        "decode of 79 bytes must return InvalidLength {{ got: 79 }}"
+        matches!(result, Err(BoundaryDecodeError { got: 79 })),
+        "decode of 79 bytes must return BoundaryDecodeError {{ got: 79 }}"
     );
 
     let long = [0u8; 81];
     let result = BlockCertificate::decode(&long);
     assert!(
-        matches!(result, Err(BoundaryDecodeError::InvalidLength { got: 81 })),
-        "decode of 81 bytes must return InvalidLength {{ got: 81 }}"
+        matches!(result, Err(BoundaryDecodeError { got: 81 })),
+        "decode of 81 bytes must return BoundaryDecodeError {{ got: 81 }}"
     );
+}
+
+#[test]
+fn boundary_round_trip_is_identity() {
+    // Mining produces a certificate; encode → decode must yield an equivalent one.
+    // This is the BinaryGroundingMap ↔ BinaryProjectionMap isomorphism witness.
+    let header = genesis_header();
+    let cert = MiningRound::new(header, Target::new(0x207fffff))
+        .converge()
+        .expect("easy target must converge");
+
+    let wire = cert.encode();
+    assert_eq!(wire.len(), 80, "wire encoding must be exactly 80 bytes");
+
+    let round_tripped =
+        BlockCertificate::decode(&wire).expect("re-decoding own wire bytes must succeed");
+
+    // Round-trip preserves the digest and the wire bytes byte-for-byte.
+    assert_eq!(cert.digest(), round_tripped.digest());
+    assert_eq!(cert.encode(), round_tripped.encode());
 }

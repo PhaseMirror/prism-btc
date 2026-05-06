@@ -1,0 +1,24 @@
+[package]
+name        = "prism-btc-node"
+version     = "0.1.0"
+edition     = "2021"
+description = "Bitcoin Core RPC integration for prism-btc — fetch templates, mine, submit blocks"
+license     = "Apache-2.0"
+repository  = "https://github.com/UOR-Foundation/prism-btc"
+publish     = false
+
+[dependencies]
+prism-btc           = { path = "../prism-btc",           version = "0.1.0" }
+prism-btc-types     = { path = "../prism-btc-types",     version = "0.1.0" }
+prism-btc-reduction = { path = "../prism-btc-reduction", version = "0.1.0" }
+bitcoin             = { version = "0.32",  features = ["serde"] }
+bitcoincore-rpc     = { version = "0.19" }
+hex                 = "0.4"
+serde               = { version = "1",     features = ["derive"] }
+serde_json          = "1"
+clap                = { version = "4",     features = ["derive"] }
+anyhow              = "1"
+
+[[bin]]
+name = "prism-mine"
+path = "src/bin/prism-mine.rs"

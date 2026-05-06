@@ -5,8 +5,26 @@ Bitcoin mining as **σ-convergence** over the nonce fiber of the 32×W8 Datum sp
 The block header (80 bytes) is the source space. The σ-projection (SHA256d)
 maps each (header, nonce) pair to a candidate 32-byte Datum. The target shape
 constraint defines a sub-bundle of the Datum space. Mining is a search for a
-nonce whose image under σ lands in that sub-bundle and passes the UOR
-`run_pipeline` certification, returning an un-fabricatable `Grounded<BlockHash>`.
+nonce whose image under σ lands in that sub-bundle; the UOR shape certification
+runs exactly once per round via `pipeline::run_const` (v0.3.1), producing an
+un-fabricatable `Grounded<ConstrainedTypeInput, BlockHashTag>` that is cloned
+into every winning candidate's certificate.
+
+## Type-level morphism kinds
+
+prism-btc carries two distinct foundation `MorphismKind` markers at the type level:
+
+| Morphism | Kind | Properties |
+|---|---|---|
+| **σ-projection** (header‖nonce → 32-byte digest) | `DigestProjectionMap` | `Total`. Not `Invertible`, not `PreservesStructure`, not `PreservesMetric`. |
+| **Wire round-trip** (`BlockCertificate` ↔ 80 bytes) | `BinaryGroundingMap` ↔ `BinaryProjectionMap` | `Total + Invertible` in both directions — a zero-cost isomorphism. |
+
+The σ-projection kind is the phantom parameter on
+`BlockCertificate<Sigma: ProjectionMapKind + Total>`. The wire-isomorphism kinds
+are the `Boundary` trait's `Ingest`/`Emit` associated types. Together they
+make the only two morphisms in the design type-level explicit: nothing the
+mining loop does can confuse them, and the foundation's sealed `MorphismKind`
+hierarchy means downstream cannot smuggle in a different `Sigma`.
 
 > **Note on terminology.** SHA256d is the **σ-projection** (ingestion hash),
 > NOT the UOR ψ-map. UOR Foundation reserves ψ for the categorical functor
@@ -17,11 +35,11 @@ nonce whose image under σ lands in that sub-bundle and passes the UOR
 
 | Crate | Role |
 |---|---|
-| [`prism-btc-primitives`](crates/prism-btc-primitives/) | Bitcoin scalar newtypes (`Version`, `Timestamp`, `Bits`, …) bound to the UOR ring vocabulary |
-| [`prism-btc-types`](crates/prism-btc-types/) | Domain types (`BlockHash`, `Target`, `TriadicCoords`, …) as `#[derive(ConstrainedType)]` ring elements |
-| [`prism-btc-reduction`](crates/prism-btc-reduction/) | σ-convergence loop (`run_convergence`), wire-bytes certification (`certify_wire_bytes`), `BlockCertificate` |
+| [`prism-btc-types`](crates/prism-btc-types/) | Domain types (`BlockHash`, `Target`, `TriadicCoords`, `BlockHeader`, `Version`/`Timestamp`/`Bits`) and the `BlockHashTag` phantom |
+| [`prism-btc-reduction`](crates/prism-btc-reduction/) | σ-convergence loop (`run_convergence`), wire serialization, `block_hash_shape_certificate`, `BlockCertificate<Sigma>`, `Fnv1aHasher16` |
 | [`prism-btc`](crates/prism-btc/) | Public API: `MiningRound`, `BlockCertificate`, `Boundary`, `genesis()` |
 | [`prism-btc-wasm`](crates/prism-btc-wasm/) | `wasm-bindgen` wrapper: `JsBlockHeader`, `mine_block()` (distributed via wasm-pack, not crates.io) |
+| [`prism-btc-node`](crates/prism-btc-node/) | Bitcoin Core RPC integration: `PrismMiner`, `prism-mine` CLI — fetches `getblocktemplate`, builds coinbase + merkle root via `rust-bitcoin`, mines via `prism_btc::MiningRound`, submits via `submitblock`. Demonstrably accepted by Bitcoin Core on regtest |
 | [`prism-btc-lean/`](prism-btc-lean/) | Lean 4 formal proofs: ring identity (W8/W32), triadic coords, FreeRank protocol, shape constraint monotonicity, σ-convergence termination |
 
 ## Quick start
@@ -52,15 +70,16 @@ use prism_btc::prelude::*;
 
 This brings into scope:
 - **Mining context**: `MiningRound` — wraps a `(BlockHeader, Target)` pair
-- **Certificate output**: `BlockCertificate` — sealed `Grounded<BlockHash>` + `TriadicCoords` (nonce never observable)
-- **Domain types**: `BlockHash`, `BlockHeader`, `MerkleRoot`, `Target`, `TriadicCoords`
-- **Primitives**: `Version`, `Timestamp`, `Bits`, `BlockHeight`, `Satoshi`, `FeeRate`, `Address`
-- **Boundary trait**: `Boundary` (decode/encode), `BoundaryDecodeError`, `Triadic`
-- **Failure type**: `ConvergenceFailure` (`FiberExhausted` | `ReductionStall { reason }`)
-- **UOR enforcement**: `Grounded`, `Validated`
-- **Genesis**: `genesis()` — formally-grounded genesis block hash constant
+- **Certificate output**: `BlockCertificate<Sigma>` — sealed `Grounded<ConstrainedTypeInput, BlockHashTag>` + `TriadicCoords`, phantom-typed by σ-projection morphism kind
+- **Domain types**: `BlockHash`, `BlockHeader`, `MerkleRoot`, `Target`, `TriadicCoords`, `Version`, `Timestamp`, `Bits`
+- **Type tag & alias**: `BlockHashTag`, `BlockHashGrounded`
+- **Boundary trait**: `Boundary` (decode/encode), `BoundaryDecodeError`
+- **Failure type**: `ConvergenceFailure::FiberExhausted` (the only way σ-convergence can fail — the shape pipeline is infallible)
+- **UOR enforcement**: `Grounded`, `Validated`, `ConstrainedTypeInput`
+- **Morphism kinds**: `DigestProjectionMap`, `BinaryGroundingMap`, `BinaryProjectionMap`, plus the bound traits `ProjectionMapKind`, `GroundingMapKind`, `Total`, `Invertible`
+- **Genesis**: `genesis()` — formally-grounded block-hash shape certificate
 
-No raw bytes, no nonce values, and no convergence mechanics appear in the public surface.
+There is no `u32` nonce accessor in the public surface; the nonce lives only inside `BlockCertificate::encode_wire()` bytes, because the Bitcoin protocol places it there.
 
 ## Mining
 
@@ -80,18 +99,24 @@ let header = BlockHeader {
     bits: Bits(0x1d00ffff),
 };
 
-// Run the σ-convergence loop. The nonce is internal and never observable.
-let cert: BlockCertificate = MiningRound::new(header, Target::new(0x207fffff))
-    .converge()
-    .expect("easy target must converge");
+// Run the σ-convergence loop. There is no `u32` nonce accessor on the cert.
+// `Sigma = DigestProjectionMap` — the foundation kind for SHA256d.
+let cert: BlockCertificate<DigestProjectionMap> =
+    MiningRound::new(header, Target::new(0x207fffff))
+        .converge()
+        .expect("easy target must converge");
 
-// Certified hash — sealed Grounded<BlockHash>, cannot be fabricated.
-let grounded: &Grounded<BlockHash> = cert.hash();
-assert_eq!(grounded.witt_level_bits(), 8); // 32×W8 sites
+// Certified shape — sealed Grounded<ConstrainedTypeInput, BlockHashTag>,
+// cannot be fabricated. The BlockHashGrounded alias keeps the type readable.
+let grounded: &BlockHashGrounded = cert.grounded();
+assert_eq!(grounded.witt_level_bits(), 32); // W32 ceiling from CompileUnit
 
-// PRISM triadic coordinates.
+// The 32-byte block hash, surfaced directly.
+let digest: &[u8; 32] = cert.digest();
+
+// PRISM triadic coordinates (datum, stratum, spectrum).
 let coords: &TriadicCoords = cert.coords();
-println!("datum: {:?}", coords.datum);
+println!("digest: {:?}", digest);
 println!("stratum: {}", coords.stratum);
 println!("spectrum: {}", coords.spectrum);
 ```
@@ -101,12 +126,13 @@ println!("spectrum: {}", coords.spectrum);
 ```rust
 use prism_btc::genesis;
 
-// Runs uor_ground! at call time — produces a Grounded<BlockHash> that
-// cannot be fabricated. The pipeline runs over BlockHash's constraint
-// shape and panics at compile-time if the grounding fails.
+// v0.3.1 path: the CompileUnit is validated at compile time via
+// validate_compile_unit_const; pipeline::run_const executes at call time and
+// the result is tagged with BlockHashTag. Panics at compile time if the
+// CompileUnit is malformed; at runtime if the pipeline rejects it.
 let grounded = genesis();
-assert_ne!(grounded.unit_address(), 0);
-assert_eq!(grounded.witt_level_bits(), 32); // W32 grounding level
+assert_ne!(grounded.unit_address().as_u128(), 0);
+assert_eq!(grounded.witt_level_bits(), 32); // W32 ceiling
 ```
 
 ## Boundary: decoding wire-format headers
@@ -118,29 +144,36 @@ always re-runs the full pipeline — it cannot be bypassed.
 use prism_btc::prelude::*;
 
 // Decode an 80-byte wire header. Returns Err if length ≠ 80 or if the
-// hash fails the run_pipeline certification.
+// hash fails the run_pipeline certification. The decode/encode pair forms a
+// `BinaryGroundingMap` ↔ `BinaryProjectionMap` isomorphism on wire bytes.
 let cert = BlockCertificate::decode(&wire_bytes)?;
-
-// Round-trip back to wire format using the certificate's private fields.
 let bytes: Vec<u8> = cert.encode();
 ```
 
 ## σ-convergence loop
 
 ```text
+grounded = block_hash_shape_certificate()                 // v0.3.1 pipeline::run_const, once
 for nonce in 0..=u32::MAX:
-    raw      = serialize_header(header, nonce)            // 80-byte wire format
+    raw       = serialize_header(header, nonce)           // 80-byte wire format
     candidate = sha256d(raw)                               // σ-projection (NOT ψ-map)
     if candidate > target_bytes: continue                  // fast pre-filter
-    grounded = run_pipeline(BlockHash(candidate), W8)      // formal SAT certification
-    return BlockCertificate { grounded, coords, ... }
+    return BlockCertificate { grounded: grounded.clone(), coords, ... }
 return Err(FiberExhausted)
 ```
 
-`#[uor_grounded(level = "W32")]` on `converge_at_w32()` emits a static Witt level
-assertion that the nonce iterates in Z/(2^32)Z. The `Grounded<BlockHash>` wrapper
-has a sealed constructor — only `run_pipeline` and `uor_ground!` can produce it,
-which structurally enforces `freeRank = 0` without any runtime `FreeRank` object.
+The UOR pipeline certifies the *shape declaration* (the `CompileUnit`), not
+individual hash values, so it runs exactly once per `MiningRound::converge()`
+call — before the nonce loop. The CompileUnit itself is `const`-validated at
+compile time via `validate_compile_unit_const`; `pipeline::run_const::<_,
+BinaryGroundingMap, Fnv1aHasher16>` then folds the substrate hasher over the
+canonical byte layout to mint the `Grounded<ConstrainedTypeInput,
+BlockHashTag>` that is cloned into every winning candidate's certificate.
+The structural enforcement of `freeRank = 0` comes from `Grounded`'s sealed
+constructor plus the `BlockHashTag` phantom that distinguishes prism-btc's
+certificate at the type level. A module-scope
+`const _: () = assert!(WittLevel::W32.witt_length() == 32);` anchors the
+nonce ring at compile time.
 
 Convergence termination is formally proven in Lean
 ([`prism-btc-lean/PrismBtc/ConvergenceProtocol.lean`](prism-btc-lean/PrismBtc/ConvergenceProtocol.lean)):

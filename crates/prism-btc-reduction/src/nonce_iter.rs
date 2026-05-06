@@ -2,8 +2,9 @@
 ///
 /// The nonce is the free dimension of the mining morphism — it is iterated in plain
 /// Rust, external to the UOR pipeline. The structural enforcement of `freeRank = 0`
-/// is that `Grounded<BlockHash>` can only be produced by `uor_foundation::pipeline::run_pipeline`
-/// or `uor_ground!`. User code cannot fabricate a `Grounded<T>`.
+/// is that `Grounded<ConstrainedTypeInput, BlockHashTag>` can only be produced by
+/// `uor_foundation::pipeline::run` / `run_const`. User code cannot fabricate a
+/// `Grounded<T, Tag>` — the constructor is `pub(crate)` inside `uor-foundation`.
 pub(crate) struct NonceIter {
     current: u32,
     exhausted: bool,

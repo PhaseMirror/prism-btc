@@ -2,8 +2,7 @@ extern crate alloc;
 use alloc::format;
 
 use crate::types::{JsBlockHeader, JsMiningResult};
-use prism_btc::{BlockHeader, MerkleRoot, MiningRound, Target};
-use prism_btc_primitives::{Bits, Timestamp, Version};
+use prism_btc::{Bits, BlockHeader, MerkleRoot, MiningRound, Target, Timestamp, Version};
 use wasm_bindgen::prelude::*;
 
 /// Mine a block header from JavaScript.

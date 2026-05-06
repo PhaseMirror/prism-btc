@@ -12,10 +12,8 @@ keywords      = ["bitcoin", "uor", "block-hash", "target", "no-std"]
 categories    = ["cryptography::cryptocurrencies", "mathematics", "no-std"]
 
 [dependencies]
-uor-foundation        = { workspace = true }
-uor-foundation-macros = { workspace = true }
-prism-btc-primitives  = { path = "../prism-btc-primitives", version = "0.1.0" }
+uor-foundation = { workspace = true }
 
 [features]
 default = ["std"]
-std     = ["prism-btc-primitives/std"]
+std     = []

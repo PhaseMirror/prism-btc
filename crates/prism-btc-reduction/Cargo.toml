@@ -12,11 +12,10 @@ keywords      = ["bitcoin", "uor", "mining", "certificate", "no-std"]
 categories    = ["cryptography::cryptocurrencies", "mathematics", "no-std"]
 
 [dependencies]
-uor-foundation       = { workspace = true }
-prism-btc-primitives = { path = "../prism-btc-primitives", version = "0.1.0" }
-prism-btc-types      = { path = "../prism-btc-types", version = "0.1.0" }
-sha2                 = { workspace = true }
+uor-foundation  = { workspace = true }
+prism-btc-types = { path = "../prism-btc-types", version = "0.1.0" }
+sha2            = { workspace = true }
 
 [features]
 default = ["std"]
-std     = ["prism-btc-primitives/std", "prism-btc-types/std"]
+std     = ["prism-btc-types/std"]

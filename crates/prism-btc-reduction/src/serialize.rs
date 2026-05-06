@@ -11,7 +11,11 @@ use prism_btc_types::BlockHeader;
 /// [72..76] bits        (LE u32)
 /// [76..80] nonce       (LE u32)
 /// ```
-pub(crate) fn serialize_header(header: &BlockHeader, nonce: u32) -> [u8; 80] {
+///
+/// This is the wire-byte ingest layout; combined with [`crate::certify_wire_bytes`]
+/// it forms the `BinaryGroundingMap` ↔ `BinaryProjectionMap` isomorphism the
+/// `Boundary` trait carries at the type level.
+pub fn serialize_header(header: &BlockHeader, nonce: u32) -> [u8; 80] {
     let mut buf = [0u8; 80];
 
     buf[0..4].copy_from_slice(&header.version.0.to_le_bytes());
@@ -27,8 +31,7 @@ pub(crate) fn serialize_header(header: &BlockHeader, nonce: u32) -> [u8; 80] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prism_btc_primitives::{Bits, Timestamp, Version};
-    use prism_btc_types::MerkleRoot;
+    use prism_btc_types::{Bits, MerkleRoot, Timestamp, Version};
 
     // Merkle root in Bitcoin internal byte order (reversed from display).
     // Display: 4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b
@@ -60,17 +63,11 @@ mod tests {
         // Genesis nonce: 2083236893 = 0x7c2bac1d
         let buf = serialize_header(&genesis_header(), 2083236893);
 
-        // version = 1 LE
         assert_eq!(&buf[0..4], &[0x01, 0x00, 0x00, 0x00]);
-        // prev_hash = all zeros
         assert_eq!(&buf[4..36], &[0u8; 32]);
-        // merkle_root = genesis internal-order bytes
         assert_eq!(&buf[36..68], &GENESIS_MERKLE);
-        // timestamp = 1231006505 = 0x495FAB29 LE
         assert_eq!(&buf[68..72], &1231006505u32.to_le_bytes());
-        // bits = 0x1d00ffff LE
         assert_eq!(&buf[72..76], &0x1d00ffffu32.to_le_bytes());
-        // nonce = 2083236893 LE
         assert_eq!(&buf[76..80], &2083236893u32.to_le_bytes());
     }
 }

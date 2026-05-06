@@ -1,13 +1,10 @@
-use uor_foundation_macros::ConstrainedType;
-
 use crate::block_hash::BlockHash;
 
 /// Compact nBits encoding of the Bitcoin proof-of-work target.
 ///
-/// The ring is W32 (Z/(2^32)Z). The `hamming = 29` annotation encodes the genesis
-/// default: the genesis target requires 29 leading zero bytes in the block hash.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ConstrainedType)]
-#[uor(residue = 4294967296, hamming = 29)]
+/// The ring is W32 (Z/(2^32)Z). The Bitcoin target check (hash ≤ target) is
+/// enforced by `is_satisfied_by_bytes` directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target {
     pub nbits: u32,
 }

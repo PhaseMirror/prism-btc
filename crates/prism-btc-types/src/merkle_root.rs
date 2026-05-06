@@ -1,10 +1,7 @@
-use uor_foundation_macros::ConstrainedType;
-
 /// A Bitcoin Merkle root — a 32-byte SHA256d digest of the transaction tree.
 ///
-/// Same ring shape as BlockHash (W8, residue=256) — unconstrained at the type level.
-#[derive(Debug, Clone, Default, PartialEq, Eq, ConstrainedType)]
-#[uor(residue = 256, hamming = 0)]
+/// Same ring shape as `BlockHash`: 32 independent W8 sites.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MerkleRoot(pub [u8; 32]);
 
 impl MerkleRoot {

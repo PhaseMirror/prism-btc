@@ -12,12 +12,9 @@ keywords      = ["bitcoin", "mining", "uor", "formal-verification", "no-std"]
 categories    = ["cryptography::cryptocurrencies", "mathematics", "no-std"]
 
 [dependencies]
-uor-foundation        = { workspace = true }
-uor-foundation-macros = { workspace = true }
-sha2                  = { workspace = true }
-prism-btc-primitives  = { path = "../prism-btc-primitives", version = "0.1.0" }
-prism-btc-types       = { path = "../prism-btc-types", version = "0.1.0" }
-prism-btc-reduction   = { path = "../prism-btc-reduction", version = "0.1.0" }
+uor-foundation      = { workspace = true }
+prism-btc-types     = { path = "../prism-btc-types", version = "0.1.0" }
+prism-btc-reduction = { path = "../prism-btc-reduction", version = "0.1.0" }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -29,7 +26,6 @@ harness = false
 [features]
 default = ["std"]
 std     = [
-    "prism-btc-primitives/std",
     "prism-btc-types/std",
     "prism-btc-reduction/std",
 ]
