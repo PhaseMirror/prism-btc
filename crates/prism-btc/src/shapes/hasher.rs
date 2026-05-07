@@ -16,12 +16,6 @@ use uor_foundation::enforcement::Hasher;
 
 use crate::ops::sha256::{sha256, SHA256_INITIAL_STATE};
 
-/// Distinct hasher identifier per ADR-010, derived from a stable IRI.
-/// Foundation's `Hasher` trait does not currently expose an identifier
-/// slot; this constant is prism-btc's commitment for when the surface
-/// admits it.
-pub const SHA256D_HASHER_IRI: &str = "https://prism.btc/hasher/Sha256dHasher";
-
 /// Streaming SHA-256d. Maintains the inner-pass SHA-256 state online;
 /// the outer pass is one-shot at finalize.
 ///

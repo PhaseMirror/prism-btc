@@ -113,37 +113,29 @@ impl Target {
 
 /// Phantom tag distinguishing prism-btc's `Grounded` from other domains.
 ///
-/// The architecture's `MiningTag`. Foundation seals
-/// `Grounded<ConstrainedTypeInput, Tag>` to require a `Tag` parameter;
-/// this is prism-btc's chosen marker.
+/// Foundation seals `Grounded<ConstrainedTypeInput, Tag>` to require a
+/// `Tag` parameter; `MiningTag` is prism-btc's marker for an admitted
+/// Bitcoin mining witness.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct MiningTag;
 
-/// Backwards-compatible alias for the previous `BlockHashTag`. The
-/// architecture renames it; the alias is preserved for any callers
-/// that still reference the old name during reconciliation.
-pub type BlockHashTag = MiningTag;
-
-/// Ergonomic alias for the grounded mining witness.
-///
-/// `Grounded<ConstrainedTypeInput, MiningTag>` is produced by
-/// `prism_btc::mine`. The architecture calls this `MiningWitness`;
-/// the older name `BlockHashGrounded` is kept as an alias for
-/// backwards-readable documentation.
+/// The grounded mining witness — `Grounded<ConstrainedTypeInput, MiningTag>`
+/// produced by `prism_btc::mine` via foundation's `PrismModel::forward`.
 pub type MiningWitness = uor_foundation::enforcement::Grounded<
     uor_foundation::enforcement::ConstrainedTypeInput,
     MiningTag,
 >;
-pub use MiningWitness as BlockHashGrounded;
 
-/// PRISM triadic coordinates of a 32-byte digest.
+/// PRISM triadic coordinates of a 32-byte block-hash digest.
 ///
-/// The architecture maps these to the foundation `Triad` (datum =
-/// hash bytes, stratum = 2-adic valuation, spectrum = Walsh–Hadamard
-/// image). foundation 0.3.1's `Triad` surface does not yet expose
-/// public constructors with those semantics; this struct is the
-/// prism-btc-provided realisation. When foundation publishes a
-/// constructible `Triad<H>`, this type collapses to a thin alias.
+/// Foundation 0.3.2 ships its own `Triad<L>` surface accessible via
+/// [`MiningWitness::triad`], whose coordinates are projected from the
+/// `Grounded`'s `unit_address` (the metadata-domain identity). The
+/// `TriadicCoords` here is the **digest-domain** projection — `(stratum,
+/// spectrum)` over the 32 bytes of the admitted block hash itself. Both
+/// projections are exposed: foundation's `Triad` for the path identity,
+/// and prism-btc's `TriadicCoords` for the block-hash content
+/// observables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TriadicCoords {
     /// The hash bytes (display order).
@@ -161,6 +153,13 @@ pub struct TriadicCoords {
 }
 
 impl TriadicCoords {
+    /// Project a 32-byte block-hash digest (display order) to its
+    /// `(stratum, spectrum)` content observables.
+    ///
+    /// `stratum` is the 2-adic valuation: index of the lowest set bit
+    /// when the digest is viewed as a 256-bit big-endian integer
+    /// (returns 256 if the digest is all-zero). `spectrum` is the
+    /// Walsh–Hadamard parity — the popcount of all 256 bits, modulo 2.
     pub fn from_hash(hash: &[u8; 32]) -> Self {
         // 2-adic valuation: count trailing zero bits when the digest is
         // viewed as a big-endian integer (so the LOW byte is index 31).

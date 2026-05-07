@@ -22,11 +22,17 @@ use crate::shapes::hasher::Sha256dHasher;
 ///
 /// The 80-byte canonical wire-format header is wrapped in
 /// [`MiningInput`], passed to `BitcoinMiningModel::forward`, which
-/// delegates to `pipeline::run_route` (ADR-022 D5). run_route folds the
-/// input bytes through `Sha256dHasher` to produce the
-/// `ContentFingerprint` carried on the resulting
-/// `Grounded<ConstrainedTypeInput>` — bit-identical to SHA-256d of the
-/// 80-byte header, i.e. the Bitcoin block hash.
+/// delegates to `pipeline::run_route` (ADR-022 D5). The bytes are
+/// folded through `Sha256dHasher` to derive the input-binding's
+/// `content_address`; `pipeline::run` then folds the CompileUnit
+/// metadata through the same Hasher to produce the
+/// `ContentFingerprint` and `unit_address` carried on the resulting
+/// `Grounded`. The Grounded therefore attests the typed-iso path the
+/// `MiningInput` traversed under
+/// `(DefaultHostTypes, PrismBtcBounds, Sha256dHasher)`; the
+/// 32-byte block-hash bytes themselves are carried alongside on
+/// [`MiningOutcome::digest`] (computed by prism-btc's runtime via
+/// `sha256d_display`, the same algorithm body as `Sha256dHasher`).
 fn mint_witness(header_bytes: [u8; 80]) -> MiningWitness {
     let grounded = <BitcoinMiningModel as PrismModel<
         DefaultHostTypes,

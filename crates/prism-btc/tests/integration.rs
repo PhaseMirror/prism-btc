@@ -1,9 +1,13 @@
 //! Integration tests for the reconciled `prism-btc::mine` surface.
 
 use prism_btc::{
-    block_hash_grounded, mine, Bits, BlockHeader, MerkleRoot, MiningFailure, NeverCancel, Target,
-    Timestamp, Version,
+    block_hash_grounded, mine, serialize_header, sha256d_display, BitcoinMiningModel, Bits,
+    BlockHeader, MerkleRoot, MiningFailure, MiningInput, NeverCancel, PrismBtcBounds,
+    Sha256dHasher, Target, Timestamp, Version,
 };
+use uor_foundation::enforcement::Hasher;
+use uor_foundation::pipeline::PrismModel;
+use uor_foundation::DefaultHostTypes;
 
 fn easy_header() -> BlockHeader {
     let merkle: [u8; 32] = [
@@ -51,6 +55,75 @@ fn block_hash_grounded_carries_w32_level() {
     let grounded = block_hash_grounded();
     assert_eq!(grounded.witt_level_bits(), 32);
     assert_ne!(grounded.unit_address().as_u128(), 0);
+}
+
+#[test]
+fn mine_outcome_digest_matches_sha256d_hasher_body() {
+    // The architecture claims (§1) that the σ-projection prism-btc's
+    // runtime evaluates per fiber visit shares its body with the
+    // application Hasher (`Sha256dHasher`). This test pins that claim
+    // by hashing the admitted 80-byte header through both surfaces and
+    // asserting the bytes agree (after the display-order reversal that
+    // separates Bitcoin protocol byte order from Hasher-internal
+    // byte order).
+    let header = easy_header();
+    let target = Target::new(0x207fffff);
+    let outcome = mine(&header, target, &NeverCancel).expect("easy target must admit");
+    let header_bytes = serialize_header(&header, outcome.nonce);
+
+    // Path 1: prism-btc's runtime in display order — this IS the block hash.
+    let runtime_digest = sha256d_display(&header_bytes);
+    assert_eq!(outcome.digest, runtime_digest);
+
+    // Path 2: the foundation `Hasher` impl, in internal byte order.
+    let hasher_internal = Sha256dHasher::initial()
+        .fold_bytes(&header_bytes)
+        .finalize();
+    // Reversing the Hasher's internal output gives display order.
+    let mut hasher_display = hasher_internal;
+    hasher_display.reverse();
+    assert_eq!(outcome.digest, hasher_display);
+}
+
+#[test]
+fn forward_grounded_is_invariant_across_inputs() {
+    // The Grounded foundation 0.3.2 mints carries a content_fingerprint
+    // and unit_address derived from CompileUnit metadata, not input
+    // bytes. Two distinct admitted inputs must produce Groundeds that
+    // are bit-identical at the substrate level.
+    let header_a = easy_header();
+    let mut header_b = easy_header();
+    header_b.timestamp = Timestamp(header_a.timestamp.0 + 1);
+
+    let target = Target::new(0x207fffff);
+    let oa = mine(&header_a, target, &NeverCancel).expect("a admits");
+    let ob = mine(&header_b, target, &NeverCancel).expect("b admits");
+
+    // The digests differ (input-dependent).
+    assert_ne!(oa.digest, ob.digest);
+    // The Grounded substrate bits do not.
+    assert_eq!(
+        oa.witness.content_fingerprint(),
+        ob.witness.content_fingerprint()
+    );
+    assert_eq!(oa.witness.unit_address(), ob.witness.unit_address());
+    assert_eq!(oa.witness.witt_level_bits(), ob.witness.witt_level_bits());
+}
+
+#[test]
+fn forward_is_callable_without_traversal() {
+    // BitcoinMiningModel::forward over an arbitrary 80-byte input is the
+    // foundation typed-iso surface — no W32 traversal required. This
+    // test exercises that path directly to confirm the model is
+    // well-formed against PrismBtcBounds + Sha256dHasher.
+    let header_bytes = serialize_header(&easy_header(), 0xdeadbeef);
+    let grounded = <BitcoinMiningModel as PrismModel<
+        DefaultHostTypes,
+        PrismBtcBounds,
+        Sha256dHasher,
+    >>::forward(MiningInput(header_bytes))
+    .expect("forward must succeed against well-formed input");
+    assert_eq!(grounded.witt_level_bits(), 32);
 }
 
 #[cfg(feature = "std")]

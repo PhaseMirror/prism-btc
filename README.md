@@ -28,16 +28,17 @@ miner, derived through Prism's vocabulary alone.** No `sha2` import,
 no `rayon`, no opaque crate imports. SHA-256d is a pure-Rust
 foundation `Hasher` impl ([`Sha256dHasher`](crates/prism-btc/src/shapes/hasher.rs)).
 The W32 nonce traversal is prism-btc's own runtime
-([`NonceFiberTraversal`](crates/prism-btc/src/ops/traversal.rs)), expressed as a
-deterministic walk over the foundation-typed ring. The mining inference's
-identity at the type level is declared via foundation
-`Term::Application` compositions; the runtime that evaluates those
-compositions is this crate.
+([`NonceFiberTraversal`](crates/prism-btc/src/ops/traversal.rs)),
+expressed as a deterministic walk over the foundation-typed ring.
 
-The architecture's **categorical routing through types** is the load-
-bearing claim: `TemplatePrefixShape` (76 W8 sites) → σ-projection
-`Term` composition → `TargetSubBundle` (32 W8 sites under target
-admission). The route is type-level; the walk is prism-btc's runtime.
+The architecture's **categorical routing through types** is realised
+on foundation 0.3.2 by a `PrismModel<H, B, A>` declaration
+([`BitcoinMiningModel`](crates/prism-btc/src/model.rs)): `Input =
+MiningInput` (80 W8 sites — the canonical wire-format header), `Output =
+ConstrainedTypeInput` (foundation's identity), `Hasher = Sha256dHasher`.
+prism-btc's runtime walks the W32 fiber to the admitting input;
+foundation's `pipeline::run_route` mints the
+`Grounded<ConstrainedTypeInput, MiningTag>` shape attestation over it.
 
 ## Workspace
 
@@ -83,9 +84,10 @@ realisation.
 ```rust
 use prism_btc::{
     mine, mine_parallel, block_hash_grounded,
+    BitcoinMiningModel, MiningInput,
     BlockHeader, MerkleRoot, Target, Bits, Timestamp, Version,
     NeverCancel, MiningOutcome, MiningFailure, MiningWitness,
-    Sha256dHasher, PrismBtcBounds, TemplatePrefixShape, TargetSubBundle,
+    Sha256dHasher, PrismBtcBounds,
 };
 
 let header = BlockHeader {

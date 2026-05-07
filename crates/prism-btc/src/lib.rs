@@ -4,15 +4,20 @@
 //! `PrismModel<H, B, A>`: the input shape is the 80-byte canonical
 //! Bitcoin block header ([`MiningInput`]); the output shape is
 //! foundation's identity `ConstrainedTypeInput`; the route is the
-//! identity term tree; the application `Hasher` is `Sha256dHasher`
-//! (pure-Rust SHA-256d). Foundation's `pipeline::run_route` folds the
-//! input bytes through the Hasher to produce the
-//! `Grounded<ConstrainedTypeInput>`'s content fingerprint — bit-identical
-//! to the Bitcoin block hash.
+//! identity term tree; the application `Hasher` is [`Sha256dHasher`]
+//! (pure-Rust SHA-256d).
 //!
-//! prism-btc owns the runtime that walks the W32 nonce fiber to find
-//! the admitting fiber point; foundation's typed-iso surface owns the
-//! shape attestation.
+//! prism-btc owns the W32 nonce-fiber traversal that finds the
+//! admitting fiber point ([`mine`], [`mine_parallel`]) and the runtime
+//! evaluator for SHA-256d in display order
+//! ([`crate::ops::sha256::sha256d_display`]) — that 32-byte digest is
+//! the Bitcoin block hash carried on [`MiningOutcome::digest`].
+//! Foundation owns the shape attestation: invoking
+//! `BitcoinMiningModel::forward` on the admitted 80-byte header mints a
+//! `Grounded<ConstrainedTypeInput, MiningTag>` ([`MiningWitness`])
+//! whose `content_fingerprint` is the application-Hasher digest of the
+//! CompileUnit metadata, certifying the typed-iso path under
+//! `(DefaultHostTypes, PrismBtcBounds, Sha256dHasher)`.
 //!
 //! See [`ARCHITECTURE.md`](https://github.com/afflom/prism-btc/blob/main/ARCHITECTURE.md)
 //! for the normative specification.
@@ -30,12 +35,12 @@ pub mod shapes;
 
 // Public façade.
 pub use domain::{
-    Bits, BlockHash, BlockHashGrounded, BlockHashTag, BlockHeader, MerkleRoot, MiningTag,
-    MiningWitness, Target, Timestamp, TriadicCoords, Version,
+    Bits, BlockHash, BlockHeader, MerkleRoot, MiningTag, MiningWitness, Target, Timestamp,
+    TriadicCoords, Version,
 };
 pub use model::{BitcoinMiningModel, BitcoinMiningRoute, MiningInput};
 pub use pipeline::{block_hash_grounded, mine, MiningFailure, MiningOutcome};
-pub use shapes::{PrismBtcBounds, Sha256dHasher, TargetSubBundle, TemplatePrefixShape};
+pub use shapes::{PrismBtcBounds, Sha256dHasher};
 
 #[cfg(feature = "std")]
 pub use pipeline::mine_parallel;
