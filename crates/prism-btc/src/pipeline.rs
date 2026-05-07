@@ -2,49 +2,42 @@
 //! target) pair, mints the foundation-sealed shape `Grounded` on
 //! admission, returns the (witness, nonce, digest).
 //!
-//! The architecture's `mine()` entry point. Foundation provides the
-//! sealed `Grounded` mint via `pipeline::run_const`; prism-btc
-//! provides the W32 traversal that finds the admitting fiber point.
+//! The architecture's `mine()` entry point. Foundation 0.3.2 provides the
+//! sealed `Grounded` mint via `PrismModel::forward` (which delegates to
+//! `pipeline::run_route` per ADR-022 D5); prism-btc provides the W32
+//! traversal that finds the admitting fiber point.
 
-use uor_foundation::enforcement::{
-    BinaryGroundingMap, CompileTime, CompileUnit, CompileUnitBuilder, ConstrainedTypeInput,
-    Validated,
-};
-use uor_foundation::pipeline::{run_const, validate_compile_unit_const};
-use uor_foundation::{VerificationDomain, WittLevel};
+use uor_foundation::pipeline::PrismModel;
+use uor_foundation::DefaultHostTypes;
 
 use crate::domain::{BlockHeader, MiningTag, MiningWitness, Target, TriadicCoords};
-use crate::ops::header::serialize_prefix;
-use crate::ops::term::BLOCK_HASH_SHAPE_TERM;
+use crate::model::{BitcoinMiningModel, MiningInput};
+use crate::ops::header::serialize_header;
 use crate::ops::traversal::{traverse_sequential, Cancel, Cancelled, FiberOutcome};
+use crate::shapes::bounds::PrismBtcBounds;
 use crate::shapes::hasher::Sha256dHasher;
 
-const VERIFICATION_DOMAINS: &[VerificationDomain] = &[VerificationDomain::ComposedAlgebraic];
-
-/// The const-validated BlockHash CompileUnit. Baked at compile time;
-/// any structural malformation panics during compilation.
-const BLOCK_HASH_BUILDER: CompileUnitBuilder<'static> = CompileUnitBuilder::new()
-    .root_term(BLOCK_HASH_SHAPE_TERM)
-    .witt_level_ceiling(WittLevel::W32)
-    .thermodynamic_budget(4_294_967_295_u64)
-    .target_domains(VERIFICATION_DOMAINS)
-    .result_type::<ConstrainedTypeInput>();
-
-const BLOCK_HASH_UNIT: Validated<CompileUnit<'static>, CompileTime> =
-    match validate_compile_unit_const(&BLOCK_HASH_BUILDER) {
-        Ok(unit) => unit,
-        Err(_) => panic!("BlockHash CompileUnit must validate at compile time"),
-    };
-
-const _: () = assert!(WittLevel::W32.witt_length() == 32);
-
-/// Mint the prism-btc shape `Grounded` via foundation's
-/// `pipeline::run_const`. **Infallible** by construction
-/// (const-validated unit + matching `T::IRI`).
-fn block_hash_witness() -> MiningWitness {
-    let grounded =
-        run_const::<ConstrainedTypeInput, BinaryGroundingMap, Sha256dHasher>(&BLOCK_HASH_UNIT)
-            .expect("BlockHash CompileUnit is const-validated; run_const cannot fail");
+/// Mint the prism-btc shape `Grounded` for an admitted (header, nonce)
+/// pair via foundation's typed-iso pipeline.
+///
+/// The 80-byte canonical wire-format header is wrapped in
+/// [`MiningInput`], passed to `BitcoinMiningModel::forward`, which
+/// delegates to `pipeline::run_route` (ADR-022 D5). run_route folds the
+/// input bytes through `Sha256dHasher` to produce the
+/// `ContentFingerprint` carried on the resulting
+/// `Grounded<ConstrainedTypeInput>` — bit-identical to SHA-256d of the
+/// 80-byte header, i.e. the Bitcoin block hash.
+fn mint_witness(header_bytes: [u8; 80]) -> MiningWitness {
+    let grounded = <BitcoinMiningModel as PrismModel<
+        DefaultHostTypes,
+        PrismBtcBounds,
+        Sha256dHasher,
+    >>::forward(MiningInput(header_bytes))
+    .expect(
+        "BitcoinMiningModel::forward is infallible against well-formed inputs (\
+         MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES, identity route, const-validated \
+         arena); a failure here indicates foundation drift",
+    );
     grounded.tag::<MiningTag>()
 }
 
@@ -73,19 +66,22 @@ pub fn mine(
     target: Target,
     cancel: &dyn Cancel,
 ) -> Result<MiningOutcome, MiningFailure> {
-    let prefix = serialize_prefix(header);
+    let prefix = crate::ops::header::serialize_prefix(header);
     let target_bytes = target.to_bytes();
 
     let outcome = traverse_sequential(&prefix, &target_bytes, cancel)
         .map_err(|Cancelled| MiningFailure::Cancelled)?;
 
     match outcome {
-        FiberOutcome::Admitted { nonce, digest } => Ok(MiningOutcome {
-            witness: block_hash_witness(),
-            nonce,
-            digest,
-            coords: TriadicCoords::from_hash(&digest),
-        }),
+        FiberOutcome::Admitted { nonce, digest } => {
+            let header_bytes = serialize_header(header, nonce);
+            Ok(MiningOutcome {
+                witness: mint_witness(header_bytes),
+                nonce,
+                digest,
+                coords: TriadicCoords::from_hash(&digest),
+            })
+        }
         FiberOutcome::Exhausted => Err(MiningFailure::NoMatch),
     }
 }
@@ -100,25 +96,43 @@ pub fn mine_parallel(
     cancel: &(dyn Cancel + Sync),
 ) -> Result<MiningOutcome, MiningFailure> {
     use crate::ops::traversal::traverse_parallel;
-    let prefix = serialize_prefix(header);
+    let prefix = crate::ops::header::serialize_prefix(header);
     let target_bytes = target.to_bytes();
 
     let outcome = traverse_parallel(&prefix, &target_bytes, threads, cancel)
         .map_err(|Cancelled| MiningFailure::Cancelled)?;
 
     match outcome {
-        FiberOutcome::Admitted { nonce, digest } => Ok(MiningOutcome {
-            witness: block_hash_witness(),
-            nonce,
-            digest,
-            coords: TriadicCoords::from_hash(&digest),
-        }),
+        FiberOutcome::Admitted { nonce, digest } => {
+            let header_bytes = serialize_header(header, nonce);
+            Ok(MiningOutcome {
+                witness: mint_witness(header_bytes),
+                nonce,
+                digest,
+                coords: TriadicCoords::from_hash(&digest),
+            })
+        }
         FiberOutcome::Exhausted => Err(MiningFailure::NoMatch),
     }
 }
 
-/// Re-derive the foundation-sealed shape attestation without running a
-/// fiber traversal. Successor of the previous `genesis()` API.
+/// Re-derive the foundation-sealed witness for the canonical genesis
+/// header (Bitcoin block 0). Carries no fiber traversal — produces the
+/// `Grounded` directly via `BitcoinMiningModel::forward` over the genesis
+/// 80-byte header bytes.
 pub fn block_hash_grounded() -> MiningWitness {
-    block_hash_witness()
+    // Bitcoin genesis: version=1, prev_hash=0, merkle=…, time=1231006505,
+    // bits=0x1d00ffff, nonce=2083236893.
+    let merkle: [u8; 32] = [
+        0x3b, 0xa3, 0xed, 0xfd, 0x7a, 0x7b, 0x12, 0xb2, 0x7a, 0xc7, 0x2c, 0x3e, 0x67, 0x76, 0x8f,
+        0x61, 0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32, 0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e,
+        0x5e, 0x4a,
+    ];
+    let mut header = [0u8; 80];
+    header[0..4].copy_from_slice(&1u32.to_le_bytes());
+    header[36..68].copy_from_slice(&merkle);
+    header[68..72].copy_from_slice(&1231006505u32.to_le_bytes());
+    header[72..76].copy_from_slice(&0x1d00ffffu32.to_le_bytes());
+    header[76..80].copy_from_slice(&2083236893u32.to_le_bytes());
+    mint_witness(header)
 }

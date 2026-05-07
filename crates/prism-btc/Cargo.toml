@@ -12,7 +12,8 @@ keywords      = ["bitcoin", "mining", "uor", "prism", "no-std"]
 categories    = ["cryptography::cryptocurrencies", "mathematics", "no-std"]
 
 [dependencies]
-uor-foundation = { workspace = true }
+uor-foundation     = { workspace = true }
+uor-foundation-sdk = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

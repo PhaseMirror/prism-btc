@@ -7,9 +7,10 @@ members = [
 ]
 
 [workspace.dependencies]
-uor-foundation = { version = "0.3.1" }
-wasm-bindgen   = { version = "0.2" }
-js-sys         = { version = "0.3" }
+uor-foundation     = { version = "0.3.2" }
+uor-foundation-sdk = { version = "0.3.2" }
+wasm-bindgen       = { version = "0.2" }
+js-sys             = { version = "0.3" }
 
 [profile.release]
 opt-level     = 3
