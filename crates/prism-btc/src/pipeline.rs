@@ -12,7 +12,9 @@ use uor_foundation::DefaultHostTypes;
 
 use crate::domain::{BlockHeader, MiningTag, MiningWitness, Target, TriadicCoords};
 use crate::model::{BitcoinMiningModel, MiningInput};
+use crate::ops::audit::{AuditOracle, FractalTrace};
 use crate::ops::header::serialize_header;
+use crate::ops::omega::OmegaBtc;
 use crate::ops::traversal::{traverse_sequential, Cancel, Cancelled, FiberOutcome};
 use crate::shapes::bounds::PrismBtcBounds;
 use crate::shapes::hasher::Sha256dHasher;
@@ -48,12 +50,13 @@ fn mint_witness(header_bytes: [u8; 80]) -> MiningWitness {
 }
 
 /// The result of a successful `mine` invocation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MiningOutcome {
     pub witness: MiningWitness,
     pub nonce: u32,
     pub digest: [u8; 32],
     pub coords: TriadicCoords,
+    pub trace: FractalTrace,
 }
 
 /// Failure modes from `mine`.
@@ -74,6 +77,7 @@ pub fn mine(
 ) -> Result<MiningOutcome, MiningFailure> {
     let prefix = crate::ops::header::serialize_prefix(header);
     let target_bytes = target.to_bytes();
+    let omega = OmegaBtc::default();
 
     let outcome = traverse_sequential(&prefix, &target_bytes, cancel)
         .map_err(|Cancelled| MiningFailure::Cancelled)?;
@@ -86,6 +90,7 @@ pub fn mine(
                 nonce,
                 digest,
                 coords: TriadicCoords::from_hash(&digest),
+                trace: AuditOracle::audit(&omega, &digest),
             })
         }
         FiberOutcome::Exhausted => Err(MiningFailure::NoMatch),
@@ -104,6 +109,7 @@ pub fn mine_parallel(
     use crate::ops::traversal::traverse_parallel;
     let prefix = crate::ops::header::serialize_prefix(header);
     let target_bytes = target.to_bytes();
+    let omega = OmegaBtc::default();
 
     let outcome = traverse_parallel(&prefix, &target_bytes, threads, cancel)
         .map_err(|Cancelled| MiningFailure::Cancelled)?;
@@ -116,6 +122,7 @@ pub fn mine_parallel(
                 nonce,
                 digest,
                 coords: TriadicCoords::from_hash(&digest),
+                trace: AuditOracle::audit(&omega, &digest),
             })
         }
         FiberOutcome::Exhausted => Err(MiningFailure::NoMatch),

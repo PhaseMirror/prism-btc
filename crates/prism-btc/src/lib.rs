@@ -39,6 +39,7 @@ pub use domain::{
     TriadicCoords, Version,
 };
 pub use model::{BitcoinMiningModel, BitcoinMiningRoute, MiningInput};
+pub use ops::audit::FractalTrace;
 pub use pipeline::{block_hash_grounded, mine, MiningFailure, MiningOutcome};
 pub use shapes::{PrismBtcBounds, Sha256dHasher};
 

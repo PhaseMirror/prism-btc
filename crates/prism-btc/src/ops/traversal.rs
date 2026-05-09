@@ -20,7 +20,7 @@
 //! Determinism: same prefix + same target ⇒ same admitting nonce
 //! (or `Exhausted` if none in W32 satisfies).
 
-use crate::ops::sigma::sigma_project_prefix;
+use crate::ops::omega::OmegaBtc;
 
 /// Outcome of a W32 fiber traversal for a fixed (prefix, target) pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub enum FiberOutcome {
     Exhausted,
 }
 
-/// Traverse the W32 fiber sequentially.
+/// Traverse the W32 fiber sequentially, grounded in the Ω operator.
 ///
 /// `prefix` is the 76-byte header prefix (extranonce-fixed merkle root);
 /// `target` is the 32-byte big-endian threshold (display order).
@@ -44,15 +44,21 @@ pub fn traverse_sequential(
     target: &[u8; 32],
     cancel: &dyn Cancel,
 ) -> Result<FiberOutcome, Cancelled> {
+    let omega = OmegaBtc::default();
     let mut nonce: u32 = 0;
     loop {
         if (nonce & 0x3FFF) == 0 && cancel.is_cancelled() {
             return Err(Cancelled);
         }
-        let digest = sigma_project_prefix(prefix, nonce);
-        if digest <= *target {
+        
+        // Spectral evaluation via specialized Ω_btc
+        let digest = omega.project(prefix, nonce);
+        
+        // Admissibility gate
+        if omega.is_admissible(&digest, target) {
             return Ok(FiberOutcome::Admitted { nonce, digest });
         }
+        
         match nonce.checked_add(1) {
             Some(n) => nonce = n,
             None => return Ok(FiberOutcome::Exhausted),
@@ -61,8 +67,8 @@ pub fn traverse_sequential(
 }
 
 /// Traverse the W32 fiber across `threads` workers in the natural coset
-/// partition. First admitting nonce wins; losers observe a shared
-/// found/cancel flag set by the winner and bail.
+/// partition, grounded in the Ω operator. First admitting nonce wins; 
+/// losers observe a shared found/cancel flag set by the winner and bail.
 #[cfg(feature = "std")]
 pub fn traverse_parallel(
     prefix: &[u8; 76],
@@ -92,6 +98,7 @@ pub fn traverse_parallel(
             let cancel_ref = &cancelled_external;
             let winner_ref = &winner;
             s.spawn(move || {
+                let omega = OmegaBtc::default();
                 let mut nonce = worker_id as u32;
                 let stride = threads as u32;
                 let mut local_check_counter: u32 = 0;
@@ -106,8 +113,11 @@ pub fn traverse_parallel(
                     }
                     local_check_counter = (local_check_counter + 1) & 0x3FFF;
 
-                    let digest = sigma_project_prefix(prefix, nonce);
-                    if digest <= *target {
+                    // Spectral evaluation via specialized Ω_btc
+                    let digest = omega.project(prefix, nonce);
+                    
+                    // Admissibility gate
+                    if omega.is_admissible(&digest, target) {
                         if found_ref
                             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                             .is_ok()

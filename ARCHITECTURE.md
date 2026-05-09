@@ -285,6 +285,8 @@ constants (ADR-018: every capacity bound flows through `HostBounds`):
 | `FINGERPRINT_MAX_BYTES` | `32` | fixed: prism-btc declares one Hasher (§3.3) at exactly 32 bytes |
 | `TRACE_MAX_EVENTS` | `64` | bounds the per-`pipeline::run` trace at a small constant — the pipeline emits one event per stage transition (§6.4), not one per fiber visit. Headroom is for future stage subdivisions in the foundation. |
 | `WITT_LEVEL_MAX_BITS` | `32` | the W32 nonce ring is the largest algebraic level the prism-btc principal data path computes against. |
+| `STRATA_DEPTH`       | `32` | Decomposition basis: log₂(|W32|). Makes the 2-adic partition depth an explicit architectural constant distinct from the ring ceiling. Added by ADR-024. |
+| `STRATA_MAX_WORKERS` | `32` | One worker per 2-adic depth level; bounded by `STRATA_DEPTH`. Added by ADR-024. |
 
 `TRACE_MAX_EVENTS = 64` is a binding architectural commitment. It
 forbids any implementation strategy that records every fiber visit.
@@ -458,6 +460,13 @@ Parallelism: prism-btc's runtime MAY partition the W32 ring across
 threads (the natural coset partition over `Z/(2^32)Z`); first-finder
 wins. This is a runtime implementation detail and does not change
 the categorical structure.
+
+**ADR-024 extension (`StratifiedTraversal`):** A `StratifiedTraversal` refactors
+this runtime to accept a stratum assignment `(p, m)` per worker, restricting
+iteration to `A_m = { n ∈ H : v_2(n) = m }`. The σ-projection is identical;
+only the iteration domain changes. The 2-adic stratum coordinate of any
+solution is structurally determined by the worker's assignment — known before
+σ-satisfaction, not derived from it. See ADR-024 for the full decision record.
 
 **This is the operation that replaces the rayon for-loop currently
 in `prism-btc-reduction/src/parallel.rs`.** The replacement is not a
@@ -1294,7 +1303,7 @@ Source: [02 Architecture Constraints](https://github.com/UOR-Foundation/UOR-Fram
 | TC-05 replayability without deciders or hashing | `prism-verify::certify_from_trace` walks 5 events; no Hasher invocation; no decider invocation. | §6.6, §9 |
 | TC-06 no author infrastructure | `prism-mine` runs entirely on user hardware. | §9 |
 
-### 14.2 Architecture decisions (ADR-001..ADR-023)
+### 14.2 Architecture decisions (ADR-001..ADR-024)
 
 Source: [09 Architecture Decisions](https://github.com/UOR-Foundation/UOR-Framework/wiki/09-Architecture-Decisions).
 
@@ -1323,6 +1332,7 @@ Source: [09 Architecture Decisions](https://github.com/UOR-Foundation/UOR-Framew
 | ADR-021 V&V split (V = prism, IV&V = prism-verify) | `BitcoinMiningModel::forward` is the V agent; `enforcement::replay::certify_from_trace` is the IV&V agent. | §6.6, §13.0 |
 | ADR-022 D1..D5 prism_model! emissions + grammar | All four emissions (seal, FoundationClosed, PrismModel, run_route delegation) come from the SDK macro applied to a closure-bodied identity route. | §13.0 |
 | ADR-023 IntoBindingValue + ROUTE_INPUT_BUFFER_BYTES | `MiningInput` impls `IntoBindingValue` with `MAX_BYTES = 80`; well under the foundation ceiling of 4096. | §13.0, §13.2 |
+| ADR-024 Multiplicity-Stratified Mining Parallelism (MSMP) | Profinite Fiber Stratification of W32; `StratifiedTraversal`; `STRATA_DEPTH`/`STRATA_MAX_WORKERS` constants; Lean 4 proof obligations for π₃₂ ring homomorphism. | §3.2, §4.6, §14.5 |
 
 ### 14.3 Building Block View
 

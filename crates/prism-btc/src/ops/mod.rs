@@ -10,14 +10,18 @@
 //! finds the admitting fiber point so that surface has an input to mint
 //! its `Grounded` over.
 
+pub mod audit;
 pub mod header;
 pub mod merkle;
+pub mod omega;
 pub mod sha256;
 pub mod sigma;
 pub mod traversal;
 
+pub use audit::{AuditOracle, FractalTrace};
 pub use header::{serialize_header, serialize_prefix, splice_nonce};
 pub use merkle::merkle_root_internal;
+pub use omega::OmegaBtc;
 pub use sha256::{sha256, sha256d_display, sha256d_internal};
 pub use sigma::{sigma_project, sigma_project_prefix};
 pub use traversal::{traverse_sequential, Cancel, Cancelled, FiberOutcome, NeverCancel};

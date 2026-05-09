@@ -98,8 +98,9 @@ fn run_single_shot(args: &Args, auth: Auth) -> Result<()> {
         let mined = miner.mine_one_block().context("mine_one_block")?;
         let dt = started.elapsed();
         println!(
-            "[{i}/{}] mined block #{} hash={} nonce={} txs={} ({:?})",
-            args.blocks, mined.height, mined.hash, mined.nonce, mined.tx_count, dt
+            "[{i}/{}] mined block #{} hash={} nonce={} txs={} lawfulness={:.4} admissible={} ({:?})",
+            args.blocks, mined.height, mined.hash, mined.nonce, mined.tx_count, 
+            mined.trace.entropy, mined.trace.admissible, dt
         );
     }
     Ok(())
@@ -141,8 +142,9 @@ fn run_session(args: &Args, auth: Auth) -> Result<()> {
             .context("mine_until_block")?;
         let dt = started.elapsed();
         println!(
-            "[{i}/{}] mined block #{} hash={} nonce={} txs={} ({:?})",
-            args.blocks, mined.height, mined.hash, mined.nonce, mined.tx_count, dt
+            "[{i}/{}] mined block #{} hash={} nonce={} txs={} lawfulness={:.4} admissible={} ({:?})",
+            args.blocks, mined.height, mined.hash, mined.nonce, mined.tx_count, 
+            mined.trace.entropy, mined.trace.admissible, dt
         );
     }
     Ok(())

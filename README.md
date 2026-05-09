@@ -48,6 +48,7 @@ foundation's `pipeline::run_route` mints the
 | [`prism-btc-node`](crates/prism-btc-node/) | Bitcoin Core RPC boundary. `getblocktemplate` → `prism_btc::mine` → `submitblock`. Two layers: `PrismMiner` (single-shot) and `MiningSession` (extranonce + tip-watcher + parallel). `prism-mine` CLI binary. |
 | [`prism-btc-wasm`](crates/prism-btc-wasm/) | `wasm-bindgen` JS surface around `prism_btc::mine`. |
 | [`prism-btc-lean/`](prism-btc-lean/) | Lean 4 formal proofs: ring identity (W8/W32), triadic coords, FreeRank protocol, shape constraint monotonicity, σ-convergence termination. |
+| [`docs/adr/`](docs/adr/) | Architecture Decision Records. ADR-024 specifies Multiplicity Theory integration via Profinite Fiber Stratification (PFS) and MSMP. |
 
 Three application crates plus three external Prism crates
 (`uor-foundation`, `prism`, `prism-verify`).

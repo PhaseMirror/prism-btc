@@ -125,6 +125,8 @@ impl PrismMiner {
             height: template.height,
             nonce: outcome.nonce,
             witness: outcome.witness,
+            coords: outcome.coords,
+            trace: outcome.trace,
             tx_count: block.txdata.len(),
         })
     }
@@ -140,6 +142,8 @@ pub struct MinedBlock {
     pub height: u64,
     pub nonce: u32,
     pub witness: MiningWitness,
+    pub coords: prism_btc::TriadicCoords,
+    pub trace: prism_btc::FractalTrace,
     pub tx_count: usize,
 }
 
